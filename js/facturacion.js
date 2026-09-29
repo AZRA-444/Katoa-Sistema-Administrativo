@@ -97,30 +97,38 @@ function initCliente() {
 
     const mostrarError = (msg) => { err.textContent = msg; err.hidden = false; };
 
-async function buscarCliente(cedula) {
-  const cedulaLimpia = String(cedula).replace(/\D/g, '');
-  if (cedulaLimpia.length < 6) return null;
+    // Autorrelleno: usa buscarCliente() de utils/api.js (cédula en dígitos, teléfono guardado en E.164).
+    let rellenoAuto = false; // true si los campos los llenó el autorrelleno (se pueden volver a pisar)
+    const aTelefonoLocal = (tel) => {
+        const d = soloDigitos(tel);
+        return d.startsWith('58') && d.length === 12 ? '0' + d.slice(2) : d;
+    };
+    const ponerValor = (campo, valor) => {
+        const formatear = FORMATTERS[campo.dataset.format];
+        campo.value = formatear ? formatear(valor) : valor;
+    };
 
-  try {
-    const res = await fetch(`/api/guardar-cliente?cedula=${encodeURIComponent(cedulaLimpia)}`);
-    if (!res.ok) return null; 
-
-    const data = await res.json();
-    return data.status === 'ok' ? data.cliente : null;
-  } catch (err) {
-    console.error('Error al buscar cliente:', err);
-    return null;
-  }
-}
+    async function autorrellenar(digitos) {
+        const cli = await buscarCliente(digitos);
+        if (!cli || soloDigitos(f.cedula.value) !== digitos) return; // no encontrado, o la cédula ya cambió
+        const vacio = !f.nombre.value && !f.apellido.value && !f.telefono.value;
+        if (!vacio && !rellenoAuto) return; // no pisar lo que escribió el vendedor
+        ponerValor(f.nombre, cli.nombre || '');
+        ponerValor(f.apellido, cli.apellido || '');
+        ponerValor(f.telefono, aTelefonoLocal(cli.telefono || ''));
+        rellenoAuto = true;
+        err.hidden = true;
+    }
 
     form.addEventListener('input', (e) => {
         err.hidden = true;
         const formatear = FORMATTERS[e.target.dataset.format];
         if (formatear) e.target.value = formatear(e.target.value);
+        if (['nombre', 'apellido', 'telefono'].includes(e.target.name)) rellenoAuto = false; // edición manual
         if (e.target === f.cedula) {
             clearTimeout(timer);
             const digitos = soloDigitos(f.cedula.value);
-            if (digitos.length >= 6) timer = setTimeout(() => autorrellenar(digitos), 400);
+            if (digitos.length >= 6 && digitos.length <= 8) timer = setTimeout(() => autorrellenar(digitos), 400);
         }
     });
 
@@ -132,46 +140,17 @@ async function buscarCliente(cedula) {
         }
     });
 
-    form.addEventListener('submit', async (e) => {
+    form.addEventListener('submit', (e) => {
         e.preventDefault();
         const v = Object.fromEntries([...new FormData(form)].map(([k, x]) => [k, x.trim()]));
         const fallo = validarCliente(v);
         if (fallo) { mostrarError(fallo.mensaje); f[fallo.campo].focus(); return; }
 
-        // Evita peticiones duplicadas desactivando el botón principal
-        const btnSubmit = form.querySelector('button[type="submit"]') || form.querySelector('button:not([type="button"])');
-        if (btnSubmit) btnSubmit.disabled = true;
-
-        try {
-            const res = await fetch('/api/guardar-cliente', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    cedula: v.cedula,
-                    nombre: v.nombre,
-                    apellido: v.apellido,
-                    telefono: v.telefono
-                })
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                mostrarError(data.message || data.error || 'Error al guardar el cliente.');
-                return;
-            }
-
-            localStorage.setItem(STORAGE.vendedor, v.vendedor);
-            state.cliente = v;
-            renderCliente();
-            dlg.close();
-
-        } catch (err) {
-            console.error('Error al guardar cliente:', err);
-            mostrarError('Error de conexión al intentar guardar el cliente.');
-        } finally {
-            if (btnSubmit) btnSubmit.disabled = false;
-        }
+        // El cliente se guarda en Supabase al enviar la factura (finalizarCompra → guardarCliente).
+        localStorage.setItem(STORAGE.vendedor, v.vendedor);
+        state.cliente = v;
+        renderCliente();
+        dlg.close();
     });
 
     abrirCliente();
@@ -579,7 +558,7 @@ async function finalizarCompra() {
 
     const payload = {
         id_factura: state.idFactura,
-        nombre: c.nombre, apellido: c.apellido, cedula: c.cedula, telefono, vendedor: c.vendedor,
+        nombre: c.nombre, apellido: c.apellido, cedula: soloDigitos(c.cedula), telefono, vendedor: c.vendedor,
         tasa_cambio: state.tasa,
         subtotal_usd: t.subtotal, descuento_usd: t.descuento, total_usd: t.total,
         subtotal_bs: t.subtotalBs, descuento_bs: t.descuentoBs, total_bs: t.totalBs,
