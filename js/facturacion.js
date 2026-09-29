@@ -97,15 +97,21 @@ function initCliente() {
 
     const mostrarError = (msg) => { err.textContent = msg; err.hidden = false; };
 
-    async function autorrellenar(cedula) {
-        const c = await buscarCliente(cedula);
-        if (!c) return;
-        // Solo completa campos vacíos: nunca pisa lo que el vendedor ya escribió.
-        if (c.nombre && !f.nombre.value) f.nombre.value = FORMATTERS.text(c.nombre);
-        if (c.apellido && !f.apellido.value) f.apellido.value = FORMATTERS.text(c.apellido);
-        if (c.telefono && !f.telefono.value)
-            f.telefono.value = FORMATTERS.phone(String(c.telefono).replace(/\D/g, '').replace(/^58/, '0'));
-    }
+async function buscarCliente(cedula) {
+  const cedulaLimpia = String(cedula).replace(/\D/g, '');
+  if (cedulaLimpia.length < 6) return null;
+
+  try {
+    const res = await fetch(`/api/guardar-cliente?cedula=${encodeURIComponent(cedulaLimpia)}`);
+    if (!res.ok) return null; 
+
+    const data = await res.json();
+    return data.status === 'ok' ? data.cliente : null;
+  } catch (err) {
+    console.error('Error al buscar cliente:', err);
+    return null;
+  }
+}
 
     form.addEventListener('input', (e) => {
         err.hidden = true;
@@ -126,15 +132,46 @@ function initCliente() {
         }
     });
 
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const v = Object.fromEntries([...new FormData(form)].map(([k, x]) => [k, x.trim()]));
         const fallo = validarCliente(v);
         if (fallo) { mostrarError(fallo.mensaje); f[fallo.campo].focus(); return; }
-        localStorage.setItem(STORAGE.vendedor, v.vendedor);
-        state.cliente = v;
-        renderCliente();
-        dlg.close();
+
+        // Evita peticiones duplicadas desactivando el botón principal
+        const btnSubmit = form.querySelector('button[type="submit"]') || form.querySelector('button:not([type="button"])');
+        if (btnSubmit) btnSubmit.disabled = true;
+
+        try {
+            const res = await fetch('/api/guardar-cliente', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cedula: v.cedula,
+                    nombre: v.nombre,
+                    apellido: v.apellido,
+                    telefono: v.telefono
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                mostrarError(data.message || data.error || 'Error al guardar el cliente.');
+                return;
+            }
+
+            localStorage.setItem(STORAGE.vendedor, v.vendedor);
+            state.cliente = v;
+            renderCliente();
+            dlg.close();
+
+        } catch (err) {
+            console.error('Error al guardar cliente:', err);
+            mostrarError('Error de conexión al intentar guardar el cliente.');
+        } finally {
+            if (btnSubmit) btnSubmit.disabled = false;
+        }
     });
 
     abrirCliente();
