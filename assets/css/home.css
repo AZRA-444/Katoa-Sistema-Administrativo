@@ -1,0 +1,182 @@
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: clamp(20px, 4vw, 48px);
+  gap: 32px;
+}
+
+.home-hero {
+  text-align: center;
+  max-width: 480px;
+}
+
+.home-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--rose);
+  background: var(--rose-faint);
+  padding: 4px 14px;
+  border-radius: 20px;
+  margin-bottom: 14px;
+}
+
+.home-hero h1 {
+  font-size: clamp(1.6rem, 1.2rem + 2vw, 2.2rem);
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.15;
+  margin-bottom: 8px;
+}
+
+.home-hero p {
+  font-size: .9rem;
+  color: var(--muted);
+}
+
+.card-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  width: 100%;
+  max-width: min(100%, 900px);
+}
+
+@media (min-width: 480px) {
+  .card-content {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (min-width: 860px) {
+  .card-content {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s;
+}
+
+.card:hover,
+.card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--rose-light);
+}
+
+.card:active {
+  transform: translateY(-1px) scale(.99);
+}
+
+.card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--rose-faint);
+  color: var(--rose-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+}
+
+.card h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.card p {
+  font-size: .78rem;
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+  
+:root {
+  --wa-green-faint: #e8faf1;
+}
+  
+
+/* Barra de usuario (nombre, rol y cerrar sesión) */
+.home-user {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: .8rem;
+}
+
+.home-user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.home-user-nombre {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.home-user-rol {
+  font-size: .68rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+
+.btn-salir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--rose-faint);
+  color: var(--rose-deep);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.btn-salir:hover,
+.btn-salir:focus-visible {
+  background: var(--rose-light);
+}
+
+@media (max-width: 480px) {
+  .home-user-info { display: none; }
+}

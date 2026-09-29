@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="assets/css/global.css">
+    <link rel="stylesheet" href="assets/css/login.css">
+    <title>Iniciar sesión - Katoa</title>
+</head>
+
+<body>
+    <main>
+        <form class="main-container" id="loginForm" novalidate>
+            <div class="header-content">
+                <h1>Bienvenido a Katoa</h1>
+                <h3>Iniciar sesión</h3>
+            </div>
+
+            <div class="form-container">
+                <label for="email-login">Correo electrónico</label>
+                <input type="email" id="email-login" name="email" autocomplete="username" required>
+
+                <label for="password">Contraseña</label>
+                <div class="input-wrapper">
+                    <input type="password" id="password" name="password" autocomplete="current-password" required>
+                    <button type="button" id="viewPassword" class="btn-eye" aria-label="Mostrar contraseña">
+                        <i class="fa-solid fa-eye" id="eyeIcon"></i>
+                    </button>
+                </div>
+            </div>
+
+            <p id="loginError" class="form-error" role="alert" hidden></p>
+
+            <div class="footer-content">
+                <button type="submit" class="primary-btn" id="loginButton">Iniciar sesión</button>
+            </div>
+        </form>
+    </main>
+
+    <script src="js/utils/passwordView.js"></script>
+    <script src="js/login.js"></script>
+</body>
+
+</html>
