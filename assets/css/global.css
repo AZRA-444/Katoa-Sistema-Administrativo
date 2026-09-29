@@ -24,6 +24,7 @@
   --franja: linear-gradient(90deg, var(--terracota), var(--salvia) 45%, var(--crema) 75%, var(--malva));
 }
 
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -33,7 +34,12 @@ body {
   background: var(--bg);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
+button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+img, svg { max-width: 100%; }
 
 h1, h2 { font-family: var(--font-display); font-weight: 500; }
 
@@ -68,7 +74,8 @@ body::before {
   cursor: pointer;
   transition: background-color .2s, box-shadow .2s, transform .1s;
 }
-.primary-btn:hover { background: var(--terracota-800); box-shadow: var(--shadow); }
+.primary-btn:hover,
+.primary-btn:focus-visible { background: var(--terracota-800); box-shadow: var(--shadow); }
 .primary-btn:active { transform: scale(.99); }
 .primary-btn:disabled { opacity: .7; cursor: not-allowed; box-shadow: none; }
 .primary-btn[aria-busy="true"]::before {

@@ -1,7 +1,7 @@
 .home-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 22px clamp(20px, 4vw, 48px) 0;
-  max-width: 1120px; margin: 0 auto;
+  padding: calc(22px + env(safe-area-inset-top)) clamp(16px, 4vw, 48px) 0;
+  max-width: 1280px; margin: 0 auto;
 }
 .home-logo { font: 500 1.9rem/1 var(--font-display); color: var(--terracota); letter-spacing: .02em; }
 
@@ -21,7 +21,7 @@
 }
 .btn-salir:hover { background: var(--crema); }
 
-main.home { max-width: 1120px; margin: 0 auto; padding: clamp(28px, 5vw, 56px) clamp(20px, 4vw, 48px) 64px; }
+main.home { max-width: 1280px; margin: 0 auto; padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 48px) calc(48px + env(safe-area-inset-bottom)); }
 
 .home-hero { margin-bottom: 40px; }
 .home-eyebrow { font-size: .75rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--terracota-700); }
@@ -38,6 +38,7 @@ main.home { max-width: 1120px; margin: 0 auto; padding: clamp(28px, 5vw, 56px) c
 .card-content { display: grid; grid-template-columns: 1fr; gap: 12px; }
 @media (min-width: 600px) { .card-content { grid-template-columns: repeat(2, 1fr); gap: 16px; } }
 @media (min-width: 960px) { .card-content { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1440px) { .card-content { grid-template-columns: repeat(4, 1fr); } }
 
 .card {
   display: flex; align-items: flex-start; gap: 16px; padding: 20px;
@@ -45,7 +46,11 @@ main.home { max-width: 1120px; margin: 0 auto; padding: clamp(28px, 5vw, 56px) c
   border: 1px solid var(--line); box-shadow: var(--shadow);
   transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s;
 }
-.card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--terracota); }
+.card:focus-visible { border-color: var(--terracota); box-shadow: var(--shadow-md); }
+@media (hover: hover) {
+  .card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--terracota); }
+  .card:hover .card-icon { background: var(--terracota); color: #fff; }
+}
 .card:active { transform: translateY(-1px) scale(.99); }
 
 .card-icon {
@@ -54,9 +59,37 @@ main.home { max-width: 1120px; margin: 0 auto; padding: clamp(28px, 5vw, 56px) c
   background: var(--crema-soft); color: var(--terracota); font-size: 1.15rem;
   transition: background .2s, color .2s;
 }
-.card:hover .card-icon { background: var(--terracota); color: #fff; }
 
 .card h3 { font: 600 1rem var(--font-body); margin-bottom: 4px; }
 .card p { font-size: .85rem; color: var(--muted); line-height: 1.45; }
 
-@media (max-width: 480px) { .home-user-info { display: none; } .home-user { padding-left: 6px; } }
+
+
+/* ---- Responsive ---- */
+/* Teléfonos */
+@media (max-width: 480px) {
+  .home-user-info { display: none; }
+  .home-user { padding-left: 6px; }
+  .home-hero { margin-bottom: 28px; }
+  .card { padding: 16px; gap: 14px; }
+  .card-icon { width: 44px; height: 44px; }
+  .home-section + .home-section { margin-top: 28px; }
+}
+/* Teléfonos pequeños (320–360px) */
+@media (max-width: 360px) {
+  .home-logo { font-size: 1.6rem; }
+  .btn-salir { padding: 0 10px; }
+  .card p { font-size: .8rem; }
+}
+/* Tablets: tarjetas en vertical para aprovechar el ancho */
+@media (min-width: 600px) and (max-width: 959px) {
+  .card { flex-direction: column; gap: 14px; }
+}
+/* Teléfono horizontal (poca altura) */
+@media (max-height: 500px) and (orientation: landscape) {
+  .home-hero { margin-bottom: 20px; }
+  .home-hero h1 { font-size: 2rem; }
+  .card-content { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+/* Pantallas muy grandes */
+@media (min-width: 1800px) { html { font-size: 112.5%; } }
