@@ -18,13 +18,49 @@
     'use strict';
 
     document.documentElement.style.visibility = 'hidden';
-    const mostrarPagina = () => (document.documentElement.style.visibility = '');
+    const mostrarPagina = () => (document.documentElement.style.visibility = 'visible');
 
     const domListo = new Promise((res) =>
         document.readyState === 'loading'
             ? document.addEventListener('DOMContentLoaded', res, { once: true })
             : res()
     );
+
+
+    // Mensaje a pantalla completa cuando la verificación falla (sin HTML inline)
+    const mostrarErrorVerificacion = () => {
+        domListo.then(() => {
+            if (document.getElementById('kt-guard-error')) return;
+            const caja = document.createElement('div');
+            caja.id = 'kt-guard-error';
+            caja.setAttribute('role', 'alert');
+            Object.assign(caja.style, {
+                position: 'fixed', inset: '0', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: '14px',
+                padding: '24px', textAlign: 'center', background: '#fff',
+                color: '#111827', fontFamily: 'system-ui, sans-serif', zIndex: '2147483647',
+                visibility: 'visible', // solo el mensaje se ve; la página sigue oculta
+            });
+            const t = document.createElement('p');
+            t.textContent = 'No se pudo verificar tu sesión. Revisa tu conexión e intenta de nuevo.';
+            const reintentar = document.createElement('button');
+            reintentar.type = 'button';
+            reintentar.textContent = 'Reintentar';
+            reintentar.addEventListener('click', () => location.reload());
+            const login = document.createElement('a');
+            login.href = '/login.html';
+            login.textContent = 'Ir a iniciar sesión';
+            for (const el of [reintentar, login]) el.style.cssText = 'font:inherit;cursor:pointer;';
+            caja.append(t, reintentar, login);
+            document.body.appendChild(caja);
+        });
+    };
+
+    // Si el navegador restaura la página desde caché (botón "atrás" tras salir),
+    // se vuelve a verificar la sesión.
+    window.addEventListener('pageshow', (e) => {
+        if (e.persisted) location.reload();
+    });
 
     const irALogin = () => {
         const next = location.pathname + location.search;
@@ -101,10 +137,10 @@
             document.dispatchEvent(new CustomEvent('kt:sesion-lista', { detail: Auth.usuario }));
             return Auth.usuario;
         } catch (e) {
-            // Error de red o servidor: no se expulsa al usuario; las llamadas a la
-            // API seguirán exigiendo sesión válida.
+            // FALLA CERRADO: si no se puede verificar la sesión, la página NO se
+            // muestra. Se ofrece reintentar o ir al login.
             console.error('No se pudo verificar la sesión:', e);
-            mostrarPagina();
+            mostrarErrorVerificacion();
             return null;
         }
     })();
