@@ -138,14 +138,6 @@
             </div>
 
             <dl class="totals">
-                <div id="rSub" hidden>
-                    <dt>Sub-total</dt>
-                    <dd id="tSub"></dd>
-                </div>
-                <div id="rDesc" class="desc" hidden>
-                    <dt id="tDescLabel">Descuento</dt>
-                    <dd id="tDesc"></dd>
-                </div>
                 <div class="grand">
                     <dt>Total</dt>
                     <dd><strong id="tTotal">$ 0,00</strong><span id="tTotalBs">Bs 0,00</span></dd>
@@ -236,7 +228,6 @@
             <td class="c" data-f="cant"></td>
             <td>
                 <span data-f="nombre"></span>
-                <span class="badge" data-f="bDesc" hidden>Sin descuento</span>
                 <span class="badge warn" data-f="bStock" hidden>Excede el stock</span>
             </td>
             <td class="n" data-f="pu"></td>
@@ -244,7 +235,6 @@
             <td class="n" data-f="totalBs"></td>
             <td>
                 <div class="acts">
-                    <button type="button" data-act="toggle"><i class="fa-solid fa-tag"></i></button>
                     <button type="button" data-act="edit" title="Editar producto" aria-label="Editar producto"><i
                             class="fa-solid fa-pen"></i></button>
                     <button type="button" data-act="del" class="danger" title="Eliminar producto"
