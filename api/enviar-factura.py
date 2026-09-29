@@ -1,90 +1,283 @@
-import json
+"""POST /api/enviar-factura
+
+Guarda una factura en Supabase (RPC `guardar_factura_completa`).
+
+Seguridad:
+  - Exige sesión activa (cookie HttpOnly creada por /api/login) y comprueba el origen.
+  - Valida todos los campos y RECALCULA subtotal, descuento y total en el servidor;
+    si no coinciden con lo que envió el navegador, rechaza la factura.
+  - Sube el comprobante (JPEG) al bucket `comprobantes` desde el servidor.
+"""
+import base64
+import binascii
 import os
+import re
+import sys
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler
+
 import requests
 
-# Variables de entorno de Supabase
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY")
+sys.path.insert(0, os.path.dirname(__file__))
+import _comun as c  # noqa: E402
+
+MAX_BODY = 2 * 1024 * 1024
+MAX_COMPROBANTE = 1_500_000  # bytes, ya comprimido por el navegador
+MAX_PRODUCTOS = 150
+CENT = Decimal("0.01")
+TOLERANCIA = Decimal("0.02")  # diferencia admitida por redondeo JS vs Python
+BUCKET = "comprobantes"
+PREFIJO_JPEG = "data:image/jpeg;base64,"
+
+# [monto mínimo (exclusivo), %] de mayor a menor. Debe coincidir con DESCUENTOS en js/facturacion.js
+DESCUENTOS = ((100, 25), (50, 20), (20, 15))
+METODOS = {"PM", "PVD", "PVC", "ED", "EBS", "OTROS"}
+
+ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
+CEDULA_RE = re.compile(r"^[\d.]+$")
+TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
+REFERENCIA_RE = re.compile(r"^\d{4,12}$")
+
+MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
+
+
+# ── Validación ──────────────────────────────────────────────────────────────
+def _err(mensaje, status=400):
+    raise c.ErrorPeticion(status, mensaje)
+
+
+def _r2(d):
+    return d.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _texto(valor, nombre, maximo, obligatorio=True):
+    if valor is None:
+        valor = ""
+    if not isinstance(valor, str):
+        _err(f"Valor inválido en {nombre}.")
+    valor = valor.strip()
+    if obligatorio and not valor:
+        _err(f"Falta {nombre}.")
+    if len(valor) > maximo:
+        _err(f"{nombre[0].upper() + nombre[1:]} es demasiado largo.")
+    if any(ch < " " and ch not in "\n\t" for ch in valor):
+        _err(f"Caracteres no permitidos en {nombre}.")
+    return valor
+
+
+def _positivo(valor, nombre, maximo):
+    """Número JSON > 0 y finito (rechaza bool, texto, NaN e Infinity)."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        _err(f"Valor inválido en {nombre}.")
+    try:
+        d = Decimal(str(valor))
+    except InvalidOperation:
+        _err(f"Valor inválido en {nombre}.")
+    if not d.is_finite() or d <= 0 or d > maximo:
+        _err(f"Valor fuera de rango en {nombre}.")
+    return d
+
+
+def _num(d):
+    """Decimal → int si es entero (columnas int en la BD), si no float."""
+    return int(d) if d == d.to_integral_value() else float(d)
+
+
+def calcular_totales(lineas, tasa):
+    subtotal = sum((l["total"] for l in lineas), Decimal(0))
+    base = sum((l["total"] for l in lineas if not l["excluido"]), Decimal(0))
+    porcentaje = next((p for minimo, p in DESCUENTOS if base > minimo), 0)
+    descuento = _r2(base * Decimal(porcentaje) / Decimal(100))
+    total = subtotal - descuento
+    return {
+        "subtotal": subtotal, "porcentaje": porcentaje, "descuento": descuento, "total": total,
+        "subtotal_bs": _r2(subtotal * tasa), "total_bs": _r2(total * tasa),
+    }
+
+
+def _decodificar_comprobante(valor):
+    if valor in (None, ""):
+        return None
+    if not isinstance(valor, str) or not valor.startswith(PREFIJO_JPEG):
+        _err("El comprobante debe ser una imagen JPEG.")
+    b64 = valor[len(PREFIJO_JPEG):]
+    if len(b64) > MAX_COMPROBANTE * 4 // 3 + 8:
+        _err("El comprobante es demasiado grande.")
+    try:
+        datos = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        _err("El comprobante no es una imagen válida.")
+    if len(datos) > MAX_COMPROBANTE or not datos.startswith(b"\xff\xd8\xff"):
+        _err("El comprobante no es una imagen válida.")
+    return datos
+
+
+def validar(p):
+    """Devuelve (p_factura, p_detalles, comprobante_bytes|None) o lanza ErrorPeticion(400)."""
+    id_factura = _texto(p.get("id_factura"), "el id de factura", 64)
+    if not ID_RE.match(id_factura):
+        _err("Id de factura inválido.")
+
+    nombre = _texto(p.get("nombre"), "el nombre", 60)
+    apellido = _texto(p.get("apellido"), "el apellido", 60)
+    cedula = _texto(p.get("cedula"), "la cédula", 15)
+    if not CEDULA_RE.match(cedula) or not 6 <= len(re.sub(r"\D", "", cedula)) <= 8:
+        _err("Cédula inválida.")
+    telefono = _texto(p.get("telefono"), "el teléfono", 16)
+    if not TELEFONO_RE.match(telefono):
+        _err("Teléfono inválido.")
+    vendedor = _texto(p.get("vendedor"), "el vendedor", 60)
+    tasa = _positivo(p.get("tasa_cambio"), "la tasa de cambio", Decimal(1_000_000))
+
+    # Productos
+    crudos = p.get("productos")
+    if not isinstance(crudos, list) or not 1 <= len(crudos) <= MAX_PRODUCTOS:
+        _err(f"La factura debe tener entre 1 y {MAX_PRODUCTOS} productos.")
+    lineas = []
+    for i, it in enumerate(crudos, 1):
+        if not isinstance(it, dict):
+            _err(f"Producto {i} inválido.")
+        cantidad = _positivo(it.get("cantidad"), f"la cantidad del producto {i}", Decimal(100_000))
+        unitario = _positivo(it.get("precioUnitario"), f"el precio del producto {i}", Decimal(10_000_000))
+        id_inv = it.get("idInventario")
+        if id_inv is not None and (isinstance(id_inv, bool) or not isinstance(id_inv, int)):
+            _err(f"Producto {i}: id de inventario inválido.")
+        lineas.append({
+            "nombre": _texto(it.get("nombre"), f"el nombre del producto {i}", 120),
+            "cantidad": cantidad,
+            "unitario": unitario,
+            "total": _r2(cantidad * unitario),
+            "excluido": it.get("excluidoDescuento") is True,
+            "id_inventario": id_inv,
+        })
+
+    # Totales: el servidor manda
+    t = calcular_totales(lineas, tasa)
+    for campo, esperado in (("total_usd", t["total"]), ("total_bs", t["total_bs"])):
+        recibido = _positivo(p.get(campo), campo, Decimal(10) ** 12)
+        if abs(recibido - esperado) > TOLERANCIA:
+            _err("Los totales no coinciden con el cálculo del servidor. Recarga la página e inténtalo de nuevo.")
+
+    # Pago
+    metodo = _texto(p.get("metodo_pago"), "el método de pago", 10)
+    if metodo not in METODOS:
+        _err("Método de pago inválido.")
+    banco = referencia = "N/A"
+    observaciones = _texto(p.get("observaciones"), "las observaciones", 500, obligatorio=False)
+    comprobante = None
+
+    if metodo == "PM":
+        banco = _texto(p.get("banco"), "el banco", 40)
+        referencia = _texto(p.get("referencia"), "la referencia", 12)
+        if not REFERENCIA_RE.match(referencia):
+            _err("La referencia debe tener entre 4 y 12 dígitos.")
+        comprobante = _decodificar_comprobante(p.get("comprobante"))
+    elif metodo == "OTROS":
+        if not observaciones:
+            _err("Describe el método de pago en las observaciones.")
+    elif metodo in ("ED", "EBS") and p.get("monto_recibido") is not None:
+        recibido = _positivo(p.get("monto_recibido"), "el monto recibido", Decimal(10) ** 12)
+        total_moneda = t["total"] if metodo == "ED" else t["total_bs"]
+        if recibido + TOLERANCIA < total_moneda:
+            _err("El monto recibido no cubre el total de la factura.")
+        simbolo = "$" if metodo == "ED" else "Bs"
+        nota = f"Recibido {simbolo}{recibido:.2f} · Vuelto {simbolo}{max(recibido - total_moneda, Decimal(0)):.2f}"
+        observaciones = f"{observaciones} | {nota}" if observaciones else nota
+
+    factura = {
+        "id_factura": id_factura, "nombre": nombre, "apellido": apellido, "cedula": cedula,
+        "telefono": telefono, "vendedor": vendedor,
+        "subtotal_usd": float(t["subtotal"]), "total_usd": float(t["total"]),
+        "subtotal_bs": float(t["subtotal_bs"]), "total_bs": float(t["total_bs"]),
+        "tasa_cambio": float(tasa),
+        "metodo_pago": metodo, "referencia": referencia, "banco": banco,
+        "comprobante_path": None, "observaciones": observaciones, "pagos_combinados": None,
+    }
+    detalles = [
+        {
+            "nombre_producto": l["nombre"], "cantidad": _num(l["cantidad"]),
+            "precio_unitario": float(l["unitario"]), "precio_total": float(l["total"]),
+            "id_inventario": l["id_inventario"],
+        }
+        for l in lineas
+    ]
+    return factura, detalles, comprobante
+
+
+# ── Sesión y Supabase ───────────────────────────────────────────────────────
+def _sesion_activa(h):
+    access = c.leer_cookies(h).get(c.COOKIE_ACCESS)
+    if not access:
+        return False
+    usuario = c.auth_usuario(access)
+    if not usuario:
+        return False
+    perfil = c.obtener_perfil(usuario["id"])
+    return bool(perfil and perfil.get("activo"))
+
+
+def _subir_comprobante(id_factura, datos):
+    ruta = f"{id_factura}.jpg"
+    r = c._http.post(
+        f"{c.SUPABASE_URL}/storage/v1/object/{BUCKET}/{ruta}",
+        data=datos,
+        headers=c._hdr_servicio({"Content-Type": "image/jpeg", "x-upsert": "true"}),  # upsert: reintentos seguros
+        timeout=c.TIMEOUT * 2,
+    )
+    if r.status_code not in (200, 201):
+        print(f"[enviar-factura] storage {r.status_code}: {r.text[:300]}", file=sys.stderr)
+        _err("No se pudo guardar el comprobante. Intenta de nuevo.", 502)
+    return ruta
+
+
+def _guardar(factura, detalles):
+    r = c._http.post(
+        f"{c.SUPABASE_URL}/rest/v1/rpc/guardar_factura_completa",
+        json={"p_factura": factura, "p_detalles": detalles},
+        headers=c._hdr_servicio(),
+        timeout=c.TIMEOUT,
+    )
+    if r.status_code in (200, 204):
+        return "ok"
+    print(f"[enviar-factura] rpc {r.status_code}: {r.text[:500]}", file=sys.stderr)
+    if r.status_code == 409 or '"23505"' in r.text:
+        return "duplicada"  # misma id_factura: el envío anterior sí se guardó
+    _err("No se pudo guardar la factura. Intenta de nuevo o avisa al administrador.", 502)
+
+
+def _error(h, status, mensaje):
+    c.responder(h, status, {"status": "error", "message": mensaje})
+
 
 class handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        # Manejo de CORS (preflight)
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.end_headers()
-
     def do_POST(self):
+        if not c.config_completa():
+            return _error(self, 500, "Configuración del servidor incompleta.")
+        if not c.origen_valido(self):
+            return _error(self, 403, "Origen no permitido.")
         try:
-            # 1. Leer el cuerpo de la petición HTTP
-            content_length = int(self.headers.get("Content-Length", 0))
-            body_raw = self.rfile.read(content_length)
-            payload = json.loads(body_raw)
+            if not _sesion_activa(self):
+                return _error(self, 401, "Sesión expirada. Inicia sesión de nuevo.")
+            datos = c.leer_json(self, MAX_BODY)
+            factura, detalles, comprobante = validar(datos)
+            if comprobante:
+                factura["comprobante_path"] = _subir_comprobante(factura["id_factura"], comprobante)
+            estado = _guardar(factura, detalles)
+        except c.ErrorPeticion as e:
+            return _error(self, e.status, e.mensaje)
+        except (requests.RequestException, RuntimeError):
+            return _error(self, 503, MSG_NO_DISPONIBLE)
 
-            # 2. Construir 'p_factura' filtrando campos de descuentos y créditos
-            p_factura = {
-                "id_factura": payload.get("id_factura"),
-                "nombre": payload.get("nombre"),
-                "apellido": payload.get("apellido", ""),
-                "cedula": payload.get("cedula", ""),
-                "telefono": payload.get("telefono"),
-                "vendedor": payload.get("vendedor", "Cajero General"),
-                "subtotal_usd": payload.get("subtotal_usd"),
-                "total_usd": payload.get("total_usd"),
-                "subtotal_bs": payload.get("subtotal_bs"),
-                "total_bs": payload.get("total_bs"),
-                "tasa_cambio": payload.get("tasa_cambio", 1.0),
-                "metodo_pago": payload.get("metodo_pago"),
-                "referencia": payload.get("referencia"),
-                "banco": payload.get("banco"),
-                "comprobante_path": payload.get("comprobante_path"),
-                "observaciones": payload.get("observaciones", ""),
-                "pagos_combinados": payload.get("pagos_combinados")
-            }
+        if estado == "duplicada":
+            return c.responder(self, 409, {"status": "duplicada", "message": "Esta factura ya estaba registrada."})
+        return c.responder(
+            self, 200,
+            {"status": "ok", "message": "Factura guardada.", "id_factura": factura["id_factura"]},
+        )
 
-            # 3. Transformar 'productos' a 'p_detalles' ajustando nombres de propiedades
-            productos_raw = payload.get("productos", [])
-            p_detalles = []
+    do_GET = do_PUT = do_PATCH = do_DELETE = c.metodo_no_permitido
 
-            for item in productos_raw:
-                p_detalles.append({
-                    "nombre_producto": item.get("nombre"),
-                    "cantidad": item.get("cantidad"),
-                    "precio_unitario": item.get("precioUnitario"),
-                    "precio_total": item.get("precioTotal")
-                })
-
-            # 4. Enviar a Supabase mediante API REST / RPC
-            rpc_url = f"{SUPABASE_URL}/rest/v1/rpc/guardar_factura_completa"
-            headers = {
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type": "application/json"
-            }
-
-            rpc_payload = {
-                "p_factura": p_factura,
-                "p_detalles": p_detalles
-            }
-
-            response = requests.post(rpc_url, json=rpc_payload, headers=headers)
-
-            if response.status_code in (200, 204):
-                self._responder(200, {"success": True, "message": "Factura guardada exitosamente"})
-            else:
-                self._responder(
-                    response.status_code, 
-                    {"error": f"Error en Supabase: {response.text}"}
-                )
-
-        except Exception as e:
-            self._responder(500, {"error": str(e)})
-
-    def _responder(self, status_code, body):
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+    def do_OPTIONS(self):
+        # Sin CORS: el frontend y la API viven en el mismo origen.
+        self.send_response(204)
         self.end_headers()
-        self.wfile.write(json.dumps(body).encode("utf-8"))
