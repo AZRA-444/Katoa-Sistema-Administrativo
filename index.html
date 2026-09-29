@@ -9,131 +9,25 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/main.css" />
-  <link rel="icon" type="image/png" href="assets/img/favicon.ico">
+  <link rel="stylesheet" href="assets/css/home.css" />
+  <!-- Oculta la página hasta que auth-guard.js confirme la sesión -->
+  <style>html{visibility:hidden}</style>
+  <script src="/js/auth-guard.js"></script>
+  <link rel="icon" href="assets/img/favicon.ico">
   <title>Comercial Jenk Cáceres — Sistema</title>
-  <style>
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100dvh;
-      padding: clamp(20px, 4vw, 48px);
-      gap: 32px;
-    }
-
-    .home-hero {
-      text-align: center;
-      max-width: 480px;
-    }
-
-    .home-eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: .68rem;
-      font-weight: 700;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      color: var(--rose);
-      background: var(--rose-faint);
-      padding: 4px 14px;
-      border-radius: 20px;
-      margin-bottom: 14px;
-    }
-
-    .home-hero h1 {
-      font-size: clamp(1.6rem, 1.2rem + 2vw, 2.2rem);
-      font-weight: 700;
-      color: var(--ink);
-      line-height: 1.15;
-      margin-bottom: 8px;
-    }
-
-    .home-hero p {
-      font-size: .9rem;
-      color: var(--muted);
-    }
-
-    .card-content {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-      width: 100%;
-      max-width: min(100%, 900px);
-    }
-
-    @media (min-width: 480px) {
-      .card-content {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 16px;
-      }
-    }
-
-    @media (min-width: 860px) {
-      .card-content {
-        grid-template-columns: repeat(4, 1fr);
-        gap: 20px;
-      }
-    }
-
-    .card {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 24px 20px;
-      border-radius: 14px;
-      background: var(--surface);
-      color: var(--text);
-      text-decoration: none;
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow);
-      transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s;
-    }
-
-    .card:hover,
-    .card:focus-visible {
-      transform: translateY(-3px);
-      box-shadow: var(--shadow-md);
-      border-color: var(--rose-light);
-    }
-
-    .card:active {
-      transform: translateY(-1px) scale(.99);
-    }
-
-    .card-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      background: var(--rose-faint);
-      color: var(--rose-deep);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.15rem;
-    }
-
-    .card h2 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--ink);
-      margin: 0;
-      text-transform: none;
-      letter-spacing: 0;
-    }
-
-    .card p {
-      font-size: .78rem;
-      color: var(--muted);
-      line-height: 1.45;
-      margin: 0;
-    }
-  </style>
 </head>
 
 <body>
+  <div class="home-user">
+    <div class="home-user-info">
+      <span class="home-user-nombre" id="usuarioNombre"></span>
+      <span class="home-user-rol" id="usuarioRol"></span>
+    </div>
+    <button type="button" class="btn-salir" id="btnSalir">
+      <i class="fa-solid fa-right-from-bracket"></i> Salir
+    </button>
+  </div>
+
   <div class="home-hero fade-in-up">
     <span class="home-eyebrow">Panel de control</span>
     <h1>Comercial Jenk Cáceres</h1>
@@ -215,17 +109,7 @@
 
   </div>
 
-  <style>
-    :root {
-      --wa-green-faint: #e8faf1;
-    }
-  </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/supabase-config.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/auth-guard.js"></script>
-  <script src="js/campanita.js"></script>
+  <script src="js/index.js"></script>
 </body>
 
 </html>
