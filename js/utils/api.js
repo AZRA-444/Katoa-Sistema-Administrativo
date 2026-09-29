@@ -2,7 +2,7 @@
 
 const ENDPOINTS = {
     inventario: '/api/inventario',
-    clientes: '/api/clientes',
+    clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
     factura: '/api/enviar-factura',
     sesion: '/api/sesion',
     tasa: 'https://open.er-api.com/v6/latest/USD',
@@ -52,12 +52,12 @@ export async function buscarProductos(q, signal) {
 }
 
 //--- CLIENTES ---//
-/** GET /api/clientes?cedula= → {nombre,apellido,telefono} | 404 */
+/** GET /api/guardar-cliente?cedula= → {status:'ok', cliente:{cedula,nombre,apellido,telefono}} | 404. Devuelve el cliente o null. */
 export async function buscarCliente(cedula) {
     try {
         const r = await request(`${ENDPOINTS.clientes}?cedula=${encodeURIComponent(cedula)}`);
         const d = r.ok ? await leerJson(r) : null;
-        return d?.data ?? d;
+        return d?.status === 'ok' ? d.cliente : null;
     } catch {
         return null;
     }
