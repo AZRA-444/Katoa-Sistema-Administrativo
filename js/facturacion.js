@@ -392,6 +392,21 @@ function filaProducto(p) {
     return tr;
 }
 
+/** Total que muestra el resumen: en pagos en dólares refleja el descuento (si está activo). */
+function totalResumen(t) {
+    const enPago = !$('#seccionPago').hidden;
+    return enPago && METODOS_USD.has($('#metodoPago').value) ? aPagarUsd(t) : t.total;
+}
+
+/** Repinta solo los totales del aside (lista, o monto con descuento al pagar en dólares). */
+function renderResumen() {
+    const t = calcularTotales(state.items, state.tasa);
+    const aCobrar = totalResumen(t);
+    $('#tEtiqueta').textContent = aCobrar < t.total ? 'Total a pagar' : 'Total';
+    pulso($('#tTotal'), usd(aCobrar));
+    pulso($('#tTotalBs'), bs(t.totalBs));
+}
+
 /** Repinta tabla y totales. Se llama tras cualquier cambio de productos o tasa. */
 function renderFactura() {
     const t = calcularTotales(state.items, state.tasa);
@@ -401,8 +416,7 @@ function renderFactura() {
     $('#tablaWrap').hidden = !state.items.length;
     $('#vacio').hidden = !!state.items.length;
     pulso($('#cuenta'), String(state.items.length));
-    pulso($('#tTotal'), usd(t.total));
-    pulso($('#tTotalBs'), bs(t.totalBs));
+    renderResumen();
     $('#btnProcesar').disabled = !state.items.length;
 }
 
@@ -430,6 +444,7 @@ function ocultarSeccionPagos() {
     $('#seccionPago').hidden = true;
     $('#btnProcesar').hidden = false;
     $('#tasa').readOnly = $('#tasaUsdt').readOnly = false;
+    renderResumen(); // de vuelta a productos, el aside muestra el total de lista
 }
 
 const mostrarPagoError = (msg, campoId) => {
@@ -460,6 +475,7 @@ function alternarDescuento(activo) {
     const caja = $('#pagoMontoUsd');
     if (caja) caja.outerHTML = htmlMontoDolares(calcularTotales(state.items, state.tasa));
     $('#EDMontoRecibido')?.dispatchEvent(new Event('input')); // recalcula el vuelto
+    renderResumen(); // el aside refleja el descuento activado o desactivado
 }
 
 function selectMetodoPago(valor) {
@@ -469,6 +485,7 @@ function selectMetodoPago(valor) {
     $('#filaDescuento').hidden = !METODOS_USD.has(valor);
     $('#descUsdt').checked = state.descuentoUsd;
     $('#pagoError').hidden = true;
+    renderResumen(); // según el método, el aside muestra el total con descuento o el de lista
 
     const monto = (titulo, texto) => `<div class="pago-monto"><small>${titulo}</small><strong>${texto}</strong></div>`;
     const campo = (id, etiqueta, control, clase = '') =>
