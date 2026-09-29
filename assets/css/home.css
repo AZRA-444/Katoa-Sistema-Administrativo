@@ -1,182 +1,235 @@
-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100dvh;
-  padding: clamp(20px, 4vw, 48px);
-  gap: 32px;
-}
-
-.home-hero {
-  text-align: center;
-  max-width: 480px;
-}
-
-.home-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: .68rem;
-  font-weight: 700;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--rose);
-  background: var(--rose-faint);
-  padding: 4px 14px;
-  border-radius: 20px;
-  margin-bottom: 14px;
-}
-
-.home-hero h1 {
-  font-size: clamp(1.6rem, 1.2rem + 2vw, 2.2rem);
-  font-weight: 700;
-  color: var(--ink);
-  line-height: 1.15;
-  margin-bottom: 8px;
-}
-
-.home-hero p {
-  font-size: .9rem;
-  color: var(--muted);
-}
-
-.card-content {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-  width: 100%;
-  max-width: min(100%, 900px);
-}
-
-@media (min-width: 480px) {
-  .card-content {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
-  }
-}
-
-@media (min-width: 860px) {
-  .card-content {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-  }
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 24px 20px;
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--text);
-  text-decoration: none;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s;
-}
-
-.card:hover,
-.card:focus-visible {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--rose-light);
-}
-
-.card:active {
-  transform: translateY(-1px) scale(.99);
-}
-
-.card-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--rose-faint);
-  color: var(--rose-deep);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.15rem;
-}
-
-.card h2 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 0;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.card p {
-  font-size: .78rem;
-  color: var(--muted);
-  line-height: 1.45;
-  margin: 0;
-}
-  
+/* =========================================
+   Variables y Reseteo Base
+   ========================================= */
 :root {
-  --wa-green-faint: #e8faf1;
+  --bg-body: #f8fafc;        /* Gris muy claro para el fondo */
+  --bg-card: #ffffff;        /* Blanco puro para las tarjetas */
+  --text-main: #0f172a;      /* Slate oscuro para títulos */
+  --text-muted: #64748b;     /* Slate grisáceo para párrafos */
+  --primary: #3b82f6;        /* Azul moderno (para iconos) */
+  --primary-light: #eff6ff;  /* Azul muy claro (fondos de iconos) */
+  --danger-bg: #fee2e2;      /* Rojo claro (botón salir) */
+  --danger-text: #ef4444;    /* Rojo (texto botón salir) */
+  --border-color: #e2e8f0;   /* Gris claro para bordes */
 }
-  
 
-/* Barra de usuario (nombre, rol y cerrar sesión) */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background-color: var(--bg-body);
+  color: var(--text-main);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* =========================================
+   Barra Superior (Usuario y Logout)
+   ========================================= */
 .home-user {
-  position: absolute;
-  top: 16px;
-  right: 16px;
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 12px;
-  padding: 6px 8px 6px 14px;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  font-size: .8rem;
+  gap: 1.5rem;
+  padding: 1.5rem 2rem;
+  background-color: transparent;
 }
 
 .home-user-info {
   display: flex;
   flex-direction: column;
-  line-height: 1.2;
-  text-align: right;
+  align-items: flex-end;
 }
 
 .home-user-nombre {
   font-weight: 600;
-  color: var(--ink);
+  font-size: 0.95rem;
+  color: var(--text-main);
 }
 
 .home-user-rol {
-  font-size: .68rem;
-  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: .6px;
+  letter-spacing: 0.05em;
 }
 
 .btn-salir {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
   border: none;
-  border-radius: 999px;
-  background: var(--rose-faint);
-  color: var(--rose-deep);
-  font: inherit;
+  border-radius: 8px;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background .2s;
+  transition: all 0.2s ease;
 }
 
-.btn-salir:hover,
-.btn-salir:focus-visible {
-  background: var(--rose-light);
+.btn-salir:hover {
+  background-color: #fecaca;
+  color: #dc2626;
 }
 
-@media (max-width: 480px) {
-  .home-user-info { display: none; }
+/* =========================================
+   Hero Section (Encabezado central)
+   ========================================= */
+.home-hero {
+  text-align: center;
+  max-width: 600px;
+  margin: 2rem auto 4rem auto;
+  padding: 0 1.5rem;
+}
+
+.home-eyebrow {
+  display: inline-block;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.home-hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+.home-hero p {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+/* =========================================
+   Grid de Tarjetas (Opciones del menú)
+   ========================================= */
+.card-content {
+  display: grid;
+  /* Crea columnas responsivas que no bajen de 280px de ancho */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem 2rem;
+}
+
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+
+/* Efecto al pasar el mouse por encima de la tarjeta */
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.1);
+  border-color: #cbd5e1;
+}
+
+.card-icon {
+  width: 50px;
+  height: 50px;
+  background-color: var(--primary-light);
+  color: var(--primary);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+/* El icono cambia de color cuando haces hover en toda la tarjeta */
+.card:hover .card-icon {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.card h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 0.4rem;
+}
+
+.card p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* =========================================
+   Animaciones (Fade in Up)
+   ========================================= */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* Efecto en cascada para las tarjetas (Stagger) */
+.stagger .card {
+  opacity: 0; /* Empiezan invisibles */
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+/* Retrasamos la animación de cada tarjeta un poquito más que la anterior */
+.stagger .card:nth-child(1) { animation-delay: 0.1s; }
+.stagger .card:nth-child(2) { animation-delay: 0.15s; }
+.stagger .card:nth-child(3) { animation-delay: 0.2s; }
+.stagger .card:nth-child(4) { animation-delay: 0.25s; }
+.stagger .card:nth-child(5) { animation-delay: 0.3s; }
+.stagger .card:nth-child(6) { animation-delay: 0.35s; }
+.stagger .card:nth-child(7) { animation-delay: 0.4s; }
+.stagger .card:nth-child(8) { animation-delay: 0.45s; }
+.stagger .card:nth-child(9) { animation-delay: 0.5s; }
+.stagger .card:nth-child(10) { animation-delay: 0.55s; }
+
+/* =========================================
+   Responsive: Pantallas muy pequeñas (Móviles)
+   ========================================= */
+@media (max-width: 600px) {
+  .home-user {
+    justify-content: space-between; /* En móvil separamos usuario y botón a los extremos */
+    padding: 1rem;
+  }
+  
+  .home-hero h1 {
+    font-size: 2rem;
+  }
+
+  .card-content {
+    padding: 0 1rem 2rem 1rem;
+  }
 }
