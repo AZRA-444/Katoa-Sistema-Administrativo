@@ -6,7 +6,7 @@ const ENDPOINTS = {
     factura: '/api/enviar-factura',
     sesion: '/api/sesion',
     tasa: 'https://open.er-api.com/v6/latest/USD',
-    tasaUsdt: 'https://ve.dolarapi.com/v1/dolares/paralelo', // dólar paralelo (referencia USDT/Binance)
+    tasaUsdt: '/api/tasa-usdt', // el servidor consulta el dólar paralelo (así el CSP no bloquea)
 };
 
 const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
@@ -39,12 +39,12 @@ export async function obtenerTasa() {
     }
 }
 
-/** Tasa USDT en Bs (dólar paralelo). Devuelve 0 si falla: el vendedor la escribe a mano. */
+/** GET /api/tasa-usdt → {status:'ok', tasa}. Devuelve 0 si falla: el vendedor la escribe a mano. */
 export async function obtenerTasaUsdt() {
     try {
-        const r = await fetch(ENDPOINTS.tasaUsdt, { signal: AbortSignal.timeout(6000) });
-        const d = await r.json();
-        return Number(d?.promedio) || Number(d?.venta) || 0;
+        const r = await request(ENDPOINTS.tasaUsdt, { signal: AbortSignal.timeout(8000) });
+        const d = r.ok ? await leerJson(r) : null;
+        return d?.status === 'ok' ? Number(d.tasa) || 0 : 0;
     } catch {
         return 0;
     }
