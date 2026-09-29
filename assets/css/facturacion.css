@@ -1,0 +1,123 @@
+/* Facturación — Katoa (usa los tokens de global.css) */
+.hidden { display: none !important; }
+
+main { max-width: 1120px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) clamp(12px, 3vw, 40px) calc(40px + env(safe-area-inset-bottom)); }
+.main-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: clamp(16px, 3vw, 36px); }
+
+/* Cabecera */
+.invoice-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; padding-bottom: 20px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
+.invoice-header h1 { font-size: clamp(2rem, 1.5rem + 2vw, 2.8rem); line-height: 1.05; }
+.client-summary { margin-top: 6px; font-size: .9rem; color: var(--muted); }
+.client-summary:empty { display: none; }
+.exchange-box { width: 100%; max-width: 220px; padding: 12px 14px; background: var(--crema-soft); border: 1px solid var(--crema); border-radius: 12px; }
+
+/* Secciones */
+.invoice-section + .invoice-section { margin-top: 32px; }
+.invoice-section > h2 { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 1.6rem; line-height: 1.1; }
+.invoice-section > h2 i { color: var(--terracota); font-size: 1.05rem; }
+
+/* Formularios */
+.form-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: .85rem; font-weight: 500; color: var(--ink); }
+.form-field input {
+  width: 100%; min-height: 46px; padding: .65rem .9rem;
+  font: 400 1rem var(--font-body); color: var(--ink);
+  background: var(--crema-soft); border: 1px solid var(--malva); border-radius: 10px;
+  transition: border-color .2s, box-shadow .2s, background .2s;
+}
+.form-field input::placeholder { color: #8A93A2; }
+.form-field input:hover { border-color: var(--terracota); }
+.form-field input:focus { outline: none; background: #fff; border-color: var(--terracota-700); box-shadow: 0 0 0 3px rgba(190, 110, 65, .25); }
+.form-field input[readonly] { background: var(--salvia-soft); border-color: var(--salvia); color: var(--muted); cursor: default; }
+.form-field input[readonly]:hover { border-color: var(--salvia); }
+.exchange-box .form-field input { background: #fff; }
+
+.form-billing-grid, .form-modal-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.form-actions-row, .modal-actions { display: flex; flex-direction: column-reverse; gap: 10px; }
+
+/* Botones */
+.btn-primary, .btn-secondary, .btn-cerrar-modal {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 46px; padding: .65rem 1.25rem;
+  font: 600 .95rem var(--font-body); text-decoration: none; cursor: pointer;
+  border-radius: 10px; transition: background-color .2s, border-color .2s, box-shadow .2s, transform .1s;
+}
+.btn-primary, .btn-cerrar-modal { color: #fff; background: var(--terracota-700); border: 1px solid var(--terracota-700); }
+.btn-primary:hover, .btn-cerrar-modal:hover { background: var(--terracota-800); border-color: var(--terracota-800); box-shadow: var(--shadow); }
+.btn-secondary { color: var(--terracota-700); background: transparent; border: 1px solid var(--malva); }
+.btn-secondary:hover { background: var(--crema-soft); border-color: var(--terracota); }
+.btn-primary:active, .btn-secondary:active { transform: scale(.98); }
+.btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Autocompletado */
+.autocomplete-container { position: relative; }
+.autocomplete-lista {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  max-height: 240px; overflow-y: auto; list-style: none;
+  background: #fff; border: 1px solid var(--malva); border-radius: 10px; box-shadow: var(--shadow-md);
+}
+.autocomplete-lista li { padding: 12px 14px; font-size: .95rem; font-weight: 400; cursor: pointer; border-bottom: 1px solid var(--line); }
+.autocomplete-lista li:last-child { border-bottom: 0; }
+.autocomplete-lista li:hover, .autocomplete-lista li.active, .autocomplete-lista li[aria-selected="true"] { background: var(--crema-soft); color: var(--terracota-800); }
+
+/* Tabla */
+.table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 12px; }
+table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: .9rem; }
+th { padding: 12px 14px; text-align: left; font: 600 .72rem var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--crema-soft); border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: #FEFBF7; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.text-center { text-align: center; }
+td button { min-width: 38px; min-height: 38px; border: 0; border-radius: 8px; background: transparent; color: var(--danger); font: inherit; cursor: pointer; }
+td button:hover { background: var(--danger-bg); }
+.table-empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 36px 16px; text-align: center; color: var(--muted); }
+.table-empty-state i { font-size: 1.8rem; color: var(--malva); }
+
+/* Totales */
+.invoice-totals { margin-top: 20px; margin-left: auto; max-width: 420px; padding: 18px 20px; background: var(--salvia-soft); border: 1px solid var(--salvia); border-radius: 12px; font-variant-numeric: tabular-nums; }
+.invoice-totals:empty { display: none; }
+.invoice-totals > * + * { margin-top: 8px; }
+.invoice-totals strong { font-weight: 600; color: var(--terracota-800); }
+.invoice-totals button { width: 100%; margin-top: 14px; }
+
+/* Modal de datos del cliente */
+dialog.modal-container { width: min(640px, calc(100% - 24px)); max-height: calc(100dvh - 24px); margin: auto; padding: 0; border: 0; border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-md); overflow-y: auto; }
+dialog.modal-container::backdrop { background: rgba(30, 41, 59, .45); backdrop-filter: blur(2px); }
+.modal-box { padding: clamp(18px, 4vw, 32px); }
+.modal-box h2 { margin-bottom: 18px; font-size: 1.8rem; line-height: 1.1; }
+
+/* Modal de estado */
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(30, 41, 59, .5); }
+.modal-card { width: min(380px, 100%); padding: 32px 24px; text-align: center; background: #fff; border-radius: 18px; box-shadow: var(--shadow-md); }
+.modal-status-section { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.modal-status-section h3 { font: 500 1.7rem var(--font-display); }
+.modal-status-section p { color: var(--muted); font-size: .95rem; }
+.spinner { width: 42px; height: 42px; border: 4px solid var(--crema); border-top-color: var(--terracota); border-radius: 50%; animation: giro .8s linear infinite; }
+.success-checkmark { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; background: var(--salvia-soft); border: 2px solid var(--salvia); }
+.check-icon { width: 14px; height: 28px; margin-top: -4px; border: solid var(--terracota-700); border-width: 0 4px 4px 0; transform: rotate(45deg); }
+.error-icon { font-size: 2rem; }
+
+/* Tablet en adelante */
+@media (min-width: 600px) {
+  .form-modal-grid { grid-template-columns: 1fr 1fr; }
+  .form-billing-grid { grid-template-columns: 1fr 1fr; }
+  .form-actions-row, .modal-actions { flex-direction: row; justify-content: flex-end; flex-wrap: wrap; }
+  .form-actions-row { justify-content: flex-start; flex-direction: row-reverse; }
+  .form-actions-row { flex-direction: row; }
+}
+/* Laptop */
+@media (min-width: 960px) {
+  .form-billing-grid { grid-template-columns: 120px minmax(0, 2.2fr) 1fr 1.2fr; }
+}
+/* Teléfonos pequeños */
+@media (max-width: 380px) {
+  .main-card { padding: 14px; border-radius: 14px; }
+  .exchange-box { max-width: none; }
+  th, td { padding: 10px; }
+}
+/* Teléfono horizontal */
+@media (max-height: 500px) and (orientation: landscape) {
+  dialog.modal-container { max-height: calc(100dvh - 12px); }
+  .modal-box { padding: 16px 20px; }
+  .modal-box h2 { margin-bottom: 10px; font-size: 1.5rem; }
+}
