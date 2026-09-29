@@ -19,48 +19,48 @@
 <body>
 
     <!-- ── Modal de datos del cliente ── -->
-    <dialog id="modalDataCliente" class="modal-container">
+    <dialog id="modalDataCliente" class="modal-container" aria-labelledby="tituloModalCliente">
         <div class="modal-box">
-            <h2><i class="fas fa-user"></i>Datos del cliente</h2>
+            <h2 id="tituloModalCliente"><i class="fas fa-user"></i>Datos del cliente</h2>
 
             <div class="form-modal-grid">
                 <label class="form-field">
                     Nombre
-                    <input type="text" id="nameClient" placeholder="María" oninput="formatText(this)" />
+                    <input type="text" id="nameClient" placeholder="María" autocomplete="given-name" data-format="text" />
                 </label>
 
                 <label class="form-field">
                     Apellido
-                    <input type="text" id="secondNameClient" placeholder="Pérez" oninput="formatText(this)" />
+                    <input type="text" id="secondNameClient" placeholder="Pérez" autocomplete="family-name" data-format="text" />
                 </label>
 
                 <label class="form-field">
                     Cédula de Identidad
-                    <input type="text" id="documentID" placeholder="Número de cédula" minlength="9" maxlength="10"
-                        oninput="formatDoc(this)" />
+                    <input type="text" id="documentID" placeholder="12.345.678" inputmode="numeric" maxlength="10"
+                        autocomplete="off" data-format="doc" />
                 </label>
 
                 <label class="form-field">
                     Número Telefónico
-                    <input type="text" id="numberPhone" placeholder="0412-345-6789" minlength="14" maxlength="14"
-                        oninput="formatPhone(this)" />
+                    <input type="text" id="numberPhone" placeholder="0412-345-6789" inputmode="tel" maxlength="13"
+                        autocomplete="tel" data-format="phone" />
                 </label>
 
-                <label class="form-field" style="grid-column:1/-1">
+                <label class="form-field field-full">
                     Vendedor
-                    <input type="text" id="nameVendedor" placeholder="Ingresa tu nombre" oninput="formatText(this)" />
+                    <input type="text" id="nameVendedor" placeholder="Ingresa tu nombre" data-format="text" />
                 </label>
 
-                <div class="modal-actions"
-                    style="grid-column:1/-1; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:4px;">
-                    <a href="../../index.html" class="btn-secondary"
-                        style="display:inline-flex;align-items:center;gap:6px;">
+                <p id="clienteError" class="form-error" role="alert" hidden></p>
+
+                <div class="modal-actions">
+                    <a href="../../index.html" class="btn-secondary">
                         <i class="fas fa-arrow-left"></i> Volver
                     </a>
-                    <button type="button" id="btnOmitirCliente" class="btn-secondary" onclick="omitirDatosCliente()">
+                    <button type="button" id="btnOmitirCliente" class="btn-secondary">
                         Omitir por ahora
                     </button>
-                    <button id="btnCerrarModal" class="btn-primary" onclick="dataClientSave()">
+                    <button type="button" id="btnCerrarModal" class="btn-primary">
                         <i class="fas fa-check"></i> Guardar datos
                     </button>
                 </div>
@@ -81,7 +81,7 @@
                 <div class="exchange-box">
                     <label class="form-field">
                         Tasa del día (Bs/$)
-                        <input type="number" id="tasa-input" placeholder="36.50" step="0.01" />
+                        <input type="number" id="tasa-input" placeholder="36.50" step="0.01" min="0" inputmode="decimal" />
                     </label>
                 </div>
             </header>
@@ -93,35 +93,37 @@
                 <div class="form-billing-grid">
                     <label class="form-field">
                         Cantidad
-                        <input type="number" id="cantProduct" placeholder="Ej: 2" min="1" />
+                        <input type="number" id="cantProduct" placeholder="Ej: 2" min="1" step="1" inputmode="numeric" />
                     </label>
 
-                    <label class="form-field">
-                        Producto
+                    <div class="form-field">
+                        <label for="nameProduct">Producto</label>
                         <!-- Contenedor necesario para el autocompletado y el clic externo -->
-                        <div class="autocomplete-container" style="position: relative; width: 100%;">
+                        <div class="autocomplete-container">
                             <input type="text" id="nameProduct" placeholder="Buscar producto o escribir a mano..."
-                                autocomplete="off" />
-                            <ul id="sugerencias-lista" class="autocomplete-lista" style="display: none;"></ul>
+                                autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"
+                                aria-controls="sugerencias-lista" />
+                            <ul id="sugerencias-lista" class="autocomplete-lista" role="listbox" style="display: none;"></ul>
                         </div>
-                    </label>
+                    </div>
 
                     <label class="form-field">
                         Precio UND ($)
-                        <input type="number" id="prcUndProduct" placeholder="0.00" step="0.01" min="0" />
+                        <input type="number" id="prcUndProduct" placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
                     </label>
 
                     <label class="form-field">
                         Precio Total ($)
-                        <input type="text" id="prcTotalProduct" readonly placeholder="Calculado automáticamente" />
+                        <input type="text" id="prcTotalProduct" readonly placeholder="Automático" />
                     </label>
 
-                    <div class="form-actions-row" style="grid-column:1/-1; display:flex; gap:10px; flex-wrap:wrap;">
-                        <button type="button" class="btn-primary" onclick="acceptProductData()">
+                    <p id="productoError" class="form-error" role="alert" hidden></p>
+
+                    <div class="form-actions-row">
+                        <button type="button" id="btnAgregarProducto" class="btn-primary">
                             <i class="fas fa-plus"></i> Agregar producto
                         </button>
-                        <a href="../../index.html" class="btn-secondary"
-                            style="display:inline-flex;align-items:center;gap:6px;">
+                        <a href="../../index.html" class="btn-secondary">
                             <i class="fas fa-arrow-left"></i> Volver
                         </a>
                     </div>
@@ -135,7 +137,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Cant.</th>
+                                <th class="text-center">Cant.</th>
                                 <th>Producto</th>
                                 <th class="num">UND $</th>
                                 <th class="num">UND Bs</th>
@@ -164,7 +166,7 @@
     </main>
 
     <!-- ── Modal de estado (procesar compra) ── -->
-    <div id="statusModal" class="modal-backdrop hidden">
+    <div id="statusModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-live="polite">
         <div class="modal-card">
             <div id="modalLoading" class="modal-status-section">
                 <div class="spinner"></div>
@@ -178,10 +180,10 @@
                 <p>Los datos se guardaron correctamente.</p>
             </div>
             <div id="modalError" class="modal-status-section hidden">
-                <div class="error-icon">❌</div>
+                <div class="error-icon"><i class="fas fa-circle-exclamation" aria-hidden="true"></i></div>
                 <h3>Ocurrió un error</h3>
                 <p id="modalErrorMessage">No se pudo procesar la compra.</p>
-                <button type="button" onclick="cerrarModalError()" class="btn-cerrar-modal">Entendido</button>
+                <button type="button" id="btnCerrarError" class="btn-cerrar-modal">Entendido</button>
             </div>
         </div>
     </div>

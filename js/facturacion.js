@@ -10,6 +10,50 @@ const state = {
   clienteCompleto: false,
 };
 
+const fmtUSD = (n) => "$ " + Number(n).toFixed(2);
+const fmtBs = (n) => "Bs " + Number(n).toFixed(2);
+
+function mostrarError(id, mensaje, campo) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = mensaje; el.hidden = false; }
+  if (campo) { campo.setAttribute("aria-invalid", "true"); campo.focus(); }
+}
+
+function ocultarError(id) {
+  const el = document.getElementById(id);
+  if (el) { el.hidden = true; el.textContent = ""; }
+  document.querySelectorAll("[aria-invalid]").forEach((i) => i.removeAttribute("aria-invalid"));
+}
+
+// Los handlers inline (onclick/oninput) los bloquea el CSP (script-src 'self'):
+// se enlazan aquí por JS.
+function enlazarEventosEstaticos() {
+  const formatos = { text: formatText, doc: formatDoc, phone: formatPhone };
+  document.querySelectorAll("[data-format]").forEach((el) =>
+    el.addEventListener("input", () => formatos[el.dataset.format](el)),
+  );
+  const on = (id, fn) => document.getElementById(id)?.addEventListener("click", fn);
+  on("btnOmitirCliente", omitirDatosCliente);
+  on("btnCerrarModal", dataClientSave);
+  on("btnCerrarError", cerrarModalError);
+  on("btnAgregarProducto", () => window.acceptProductData());
+
+  document.getElementById("modalDataCliente")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); dataClientSave(); }
+  });
+  ["cantProduct", "prcUndProduct"].forEach((id) =>
+    document.getElementById(id)?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); window.acceptProductData(); }
+    }),
+  );
+  ["cantProduct", "nameProduct", "prcUndProduct", "tasa-input"].forEach((id) =>
+    document.getElementById(id)?.addEventListener("input", () => ocultarError("productoError")),
+  );
+  document.querySelectorAll("#modalDataCliente input").forEach((i) =>
+    i.addEventListener("input", () => ocultarError("clienteError")),
+  );
+}
+
 const inputVendedor = document.getElementById("nameVendedor");
 
 if (inputVendedor) {
@@ -24,7 +68,7 @@ const BACKEND_API_URL = "/api/precargar-factura";
 
 //--- BLOQUEAR RECARGA ---//
 window.addEventListener("beforeunload", (event) => {
-  if (!state.compraExitosa) {
+  if (!state.compraExitosa && state.listaProductos.length > 0) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -44,12 +88,12 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   actualizarResumenCliente();
+  enlazarEventosEstaticos();
 
   // Inicializadores
   calcularPrecioTotal();
   inicializarTasa();
   configurarDelegacionEventos();
-  inyectarEstilosAccionesProducto();
 
   // Autorrelleno de cliente: al escribir la cédula, si ya existe un
   // cliente registrado con esa cédula se completan nombre, apellido y
@@ -64,48 +108,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-//--- ESTILOS MÍNIMOS PARA LOS BOTONES DE ACCIÓN DE CADA PRODUCTO ---//
-function inyectarEstilosAccionesProducto() {
-  if (document.getElementById("estilos-acciones-producto")) return;
-
-  const style = document.createElement("style");
-  style.id = "estilos-acciones-producto";
-  style.textContent = `
-    .acciones-producto {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-    }
-    .btn-toggle-desc {
-      padding: 5px;
-      border: 1px solid var(--accent, #666);
-      background: transparent;
-      color: var(--accent, #666);
-      border-radius: 6px;
-      width: 32px;
-      height: 32px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.15s ease, color 0.15s ease;
-    }
-    .btn-toggle-desc:hover {
-      background: var(--accent, #666);
-      color: #fff;
-    }
-    .btn-toggle-desc.active {
-      background: var(--accent, #666);
-      color: #fff;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
 //--- FILTRADO Y FORMATEO DE DATOS ---//
 
 function formatText(input) {
-  let valor = input.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]/g, "");
+  let valor = input.value.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ ]/g, "");
   input.value = valor
     .split(" ")
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
@@ -113,12 +119,8 @@ function formatText(input) {
 }
 
 function formatDoc(input) {
-  let valor = input.value.replace(/\D/g, "");
-  if (!valor) {
-    input.value = "";
-    return;
-  }
-  input.value = new Intl.NumberFormat("es-VE").format(parseInt(valor, 10));
+  const digitos = input.value.replace(/\D/g, "").slice(0, 8);
+  input.value = digitos.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 function formatPhone(input) {
@@ -144,31 +146,20 @@ function dataClientSave() {
   const numberPhone = document.getElementById("numberPhone").value.trim();
   const nameVendedor = document.getElementById("nameVendedor").value.trim();
 
-  // CORRECCIÓN: Limpiar puntos para validar numéricamente la cédula
-  const cedulaLimpia = parseInt(documentID.replace(/\./g, ""), 10) || 0;
-
-  if (!name || !secondName || !documentID || !numberPhone) {
-    alert("Por favor, llena todos los datos del cliente correctamente.");
-    return;
-  }
-
-  if (!nameVendedor) {
-    alert("Por favor, llena el campo vendedor con tu nombre.");
-    return;
-  }
-
-  if (cedulaLimpia < 100000) {
-    alert("Número de cédula inválido.");
-    return;
-  }
-
-  if (numberPhone.length < 13) {
-    alert("Número telefónico incorrecto, ¡número(s) faltante!");
-    return;
-  }
+  const cedulaDigitos = documentID.replace(/\D/g, "");
+  const $ = (id) => document.getElementById(id);
+  let error = null, campo = null;
+  if (!name) { error = "Escribe el nombre del cliente."; campo = $("nameClient"); }
+  else if (!secondName) { error = "Escribe el apellido del cliente."; campo = $("secondNameClient"); }
+  else if (cedulaDigitos.length < 6) { error = "Cédula inválida: debe tener entre 6 y 8 dígitos."; campo = $("documentID"); }
+  else if (numberPhone.length < 13) { error = "Teléfono incompleto. Ejemplo: 0412-345-6789."; campo = $("numberPhone"); }
+  else if (!nameVendedor) { error = "Escribe el nombre del vendedor."; campo = $("nameVendedor"); }
+  if (error) { mostrarError("clienteError", error, campo); return; }
+  ocultarError("clienteError");
 
   state.clienteCompleto = true;
   actualizarResumenCliente();
+  actualizarTabla();
 
   const modal = document.getElementById("modalDataCliente");
   if (modal && modal.open) {
@@ -179,7 +170,9 @@ function dataClientSave() {
 //--- OMITIR DATOS DEL CLIENTE (SE COMPLETAN MÁS TARDE) ---//
 function omitirDatosCliente() {
   state.clienteCompleto = false;
+  ocultarError("clienteError");
   actualizarResumenCliente();
+  actualizarTabla();
 
   const modal = document.getElementById("modalDataCliente");
   if (modal && modal.open) {
@@ -207,23 +200,23 @@ function actualizarResumenCliente() {
     const numberPhone = document.getElementById("numberPhone").value.trim();
 
     data.innerHTML = `
-      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <div class="client-card">
         <div>
           <p><strong>Cliente:</strong> ${escapeHtml(name)} ${escapeHtml(secondName)}</p>
           <p><strong>C.I. / RIF:</strong> ${escapeHtml(documentID)}</p>
           <p><strong>Teléfono:</strong> ${escapeHtml(numberPhone)}</p>
         </div>
-        <button type="button" class="btn-secondary" onclick="abrirModalCliente()">
+        <button type="button" class="btn-secondary" data-action="editar-cliente">
           <i class="fas fa-pen"></i> Editar cliente
         </button>
       </div>
     `;
   } else {
     data.innerHTML = `
-      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <div class="client-card client-pending">
         <p><i class="fas fa-triangle-exclamation"></i> Datos del cliente pendientes</p>
-        <button type="button" class="btn-primary" onclick="abrirModalCliente()">
-          <i class="fas fa-user-plus"></i> Completar datos del cliente
+        <button type="button" class="btn-secondary" data-action="editar-cliente">
+          <i class="fas fa-user-plus"></i> Completar datos
         </button>
       </div>
     `;
@@ -236,7 +229,7 @@ async function obtenerTasaDolar(inputTasa) {
     const response = await fetch("https://open.er-api.com/v6/latest/USD");
     const data = await response.json();
 
-    if (data?.rates?.VES) {
+    if (data?.rates?.VES && !state.tasaManual) {
       state.tasaConver = data.rates.VES;
       localStorage.setItem("tasaFacturacion", state.tasaConver);
 
@@ -266,6 +259,7 @@ function inicializarTasa() {
   }
 
   inputTasa.addEventListener("input", () => {
+    state.tasaManual = true;
     state.tasaConver = Number(inputTasa.value) || 0;
     localStorage.setItem("tasaFacturacion", state.tasaConver);
 
@@ -309,6 +303,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ------------------------------------------------------------
   let timeoutId = null;
   let busquedaId = 0;
+  let activo = -1;
 
   // ------------------------------------------------------------
   // 1. AUTOCOMPLETADO Y BÚSQUEDA
@@ -370,15 +365,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // ------------------------------------------------------------
   function mostrarSugerencia(resultados) {
     listaAutocomplete.innerHTML = "";
+    activo = -1;
 
     const textoActual = String(inputProduct.value || "").trim();
 
     if (!Array.isArray(resultados) || resultados.length === 0) {
       // Sin coincidencias: mostrar aviso + opción de agregar manualmente
-      listaAutocomplete.innerHTML = `<li class="fac-autocomplete-empty"><i class="fas fa-box-open"></i> Sin coincidencias en el inventario</li>`;
+      listaAutocomplete.innerHTML = `<li class="fac-autocomplete-empty" role="presentation"><i class="fas fa-box-open"></i> Sin coincidencias en el inventario</li>`;
       listaAutocomplete.appendChild(_crearItemManual(textoActual));
-      listaAutocomplete.style.display = "block";
-      ajustarPosicionLista();
+      abrirLista();
       return;
     }
 
@@ -387,6 +382,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const li = document.createElement("li");
       li.className = "fac-autocomplete-item";
+      li.setAttribute("role", "option");
 
       const nombre = String(prod.nombre ?? "").trim();
       const color = prod.color ? String(prod.color).trim() : "";
@@ -452,8 +448,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Siempre ofrecer la opción manual al final, aunque haya resultados
     listaAutocomplete.appendChild(_crearItemManual(textoActual));
-    listaAutocomplete.style.display = "block";
-    ajustarPosicionLista();
+    abrirLista();
   }
 
   // ------------------------------------------------------------
@@ -484,9 +479,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // que cuelga justo debajo) quede por encima del teclado. Se hace
     // en el siguiente frame para no pelear con el scroll nativo que
     // el navegador dispara al enfocar el input.
-    requestAnimationFrame(() => {
-      inputProduct.scrollIntoView({ block: "center", behavior: "smooth" });
-    });
+    // Solo en móvil (teclado virtual); en escritorio hacía saltar la página al teclear.
+    if (window.matchMedia("(max-width: 600px)").matches) {
+      requestAnimationFrame(() => {
+        inputProduct.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
   }
 
   // Reajustar mientras el teclado termina de abrirse/cerrarse
@@ -502,6 +500,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function _crearItemManual(texto) {
     const li = document.createElement("li");
     li.className = "fac-autocomplete-item fac-autocomplete-manual";
+    li.setAttribute("role", "option");
     li.innerHTML = `
       <div class="fac-autocomplete-info">
         <span class="fac-autocomplete-nombre"><i class="fas fa-pencil"></i> Agregar "<strong>${escapeHtml(texto)}</strong>" manualmente</span>
@@ -589,22 +588,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const tasa = Number(typeof state !== "undefined" ? state?.tasaConver : 0);
 
     if (!Number.isFinite(tasa) || tasa <= 0) {
-      alert("Por favor, ingresa una tasa de conversión válida.");
+      mostrarError("productoError", "Ingresa la tasa del día antes de agregar productos.", document.getElementById("tasa-input"));
       return;
     }
 
     if (!nameProd) {
-      alert("Por favor, ingresa el nombre del producto.");
+      mostrarError("productoError", "Escribe el nombre del producto.", inputProduct);
       return;
     }
 
     if (!Number.isFinite(cantProd) || cantProd <= 0) {
-      alert("La cantidad debe ser mayor que cero.");
+      mostrarError("productoError", "La cantidad debe ser mayor que cero.", inputCant);
       return;
     }
 
     if (!Number.isFinite(puProd) || puProd <= 0) {
-      alert("El precio unitario debe ser mayor que cero.");
+      mostrarError("productoError", "El precio unitario debe ser mayor que cero.", inputPrcUnd);
       return;
     }
 
@@ -637,7 +636,9 @@ document.addEventListener("DOMContentLoaded", () => {
       actualizarTabla();
     }
 
+    ocultarError("productoError");
     limpiarFormulario();
+    inputProduct.focus();
   };
 
   // ------------------------------------------------------------
@@ -665,10 +666,38 @@ document.addEventListener("DOMContentLoaded", () => {
     delete inputProduct.dataset.cantidadMayor;
   }
 
+  function abrirLista() {
+    listaAutocomplete.style.display = "block";
+    inputProduct.setAttribute("aria-expanded", "true");
+    ajustarPosicionLista();
+  }
+
   function ocultarLista() {
     listaAutocomplete.style.display = "none";
     listaAutocomplete.innerHTML = "";
+    inputProduct.setAttribute("aria-expanded", "false");
+    activo = -1;
   }
+
+  // Navegación con teclado: ↑ ↓ Enter Esc
+  function marcarActivo(i) {
+    const items = [...listaAutocomplete.querySelectorAll(".fac-autocomplete-item")];
+    items.forEach((li, n) => {
+      li.classList.toggle("active", n === i);
+      li.setAttribute("aria-selected", n === i ? "true" : "false");
+    });
+    activo = i;
+    items[i]?.scrollIntoView({ block: "nearest" });
+  }
+
+  inputProduct.addEventListener("keydown", (e) => {
+    if (listaAutocomplete.style.display !== "block") return;
+    const items = listaAutocomplete.querySelectorAll(".fac-autocomplete-item");
+    if (e.key === "ArrowDown" && items.length) { e.preventDefault(); marcarActivo((activo + 1) % items.length); }
+    else if (e.key === "ArrowUp" && items.length) { e.preventDefault(); marcarActivo((activo - 1 + items.length) % items.length); }
+    else if (e.key === "Enter") { e.preventDefault(); if (activo >= 0) items[activo].click(); }
+    else if (e.key === "Escape") { ocultarLista(); }
+  });
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".autocomplete-container")) {
@@ -684,26 +713,28 @@ function actualizarTabla() {
 
   tbody.innerHTML = "";
 
+  if (state.listaProductos.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="table-empty-state"><i class="fas fa-box-open"></i>Agrega productos para ver el detalle de la factura</div></td></tr>`;
+  }
+
   state.listaProductos.forEach((producto, index) => {
     const fila = document.createElement("tr");
     const excluido = !!producto.excluidoDescuento;
+    const tituloDesc = excluido ? "Volver a incluir en el descuento" : "Sacar del descuento (se suma completo al total)";
+    fila.className = excluido ? "fila-excluida" : "";
     fila.innerHTML = `
-      <td>${producto.cantidad}</td>
-      <td>${escapeHtml(producto.nombre)}</td>
-      <td>$${producto.precioUnitario.toFixed(2)}</td>
-      <td>${producto.precioUnitarioBS.toFixed(2)}Bs</td>
-      <td>$${producto.precioTotal.toFixed(2)}</td>
-      <td>${producto.precioTotalBS.toFixed(2)}Bs</td>
-      <td class="acciones-producto">
-        <button
-          class="btn-toggle-desc${excluido ? " active" : ""}"
-          data-index="${index}"
-          title="${excluido ? "Volver a incluir en el descuento" : "Sacar del descuento (se suma completo al total)"}"
-        >
-          <i class="fa-solid ${excluido ? "fa-rotate-left" : "fa-tag"}"></i>
-        </button>
-        <button class="btn-editar" data-index="${index}" title="Editar producto"><i class="fa-solid fa-pen"></i></button>
-        <button class="btn-eliminar" data-index="${index}"> <i class="fa-solid fa-trash"></i> </button>
+      <td class="text-center">${producto.cantidad}</td>
+      <td>${escapeHtml(producto.nombre)}${excluido ? ' <span class="badge-sin-desc">Sin descuento</span>' : ""}</td>
+      <td class="num">${fmtUSD(producto.precioUnitario)}</td>
+      <td class="num">${fmtBs(producto.precioUnitarioBS)}</td>
+      <td class="num">${fmtUSD(producto.precioTotal)}</td>
+      <td class="num">${fmtBs(producto.precioTotalBS)}</td>
+      <td>
+        <div class="acciones-producto">
+          <button type="button" class="btn-toggle-desc${excluido ? " active" : ""}" data-index="${index}" title="${tituloDesc}" aria-label="${tituloDesc}" aria-pressed="${excluido}"><i class="fa-solid ${excluido ? "fa-rotate-left" : "fa-tag"}"></i></button>
+          <button type="button" class="btn-editar" data-index="${index}" title="Editar producto" aria-label="Editar producto"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" class="btn-eliminar" data-index="${index}" title="Eliminar producto" aria-label="Eliminar producto"><i class="fa-solid fa-trash"></i></button>
+        </div>
       </td>
     `;
     tbody.appendChild(fila);
@@ -763,35 +794,32 @@ function actualizarTabla() {
       return;
     }
 
+    const filasDescuento =
+      porcentajeDescuento > 0
+        ? `<div class="fila-total"><span>Sub-total</span><span>${fmtUSD(subTotalUSD)} / ${fmtBs(subTotalBS)}</span></div>
+           <div class="fila-total descuento"><span>Descuento (-${porcentajeDescuento}%)</span><span>-${fmtUSD(state.descUSD)} / -${fmtBs(state.descBS)}</span></div>`
+        : "";
+    const aviso = state.clienteCompleto
+      ? ""
+      : `<p class="totales-aviso"><i class="fas fa-circle-info"></i> Falta completar los datos del cliente para procesar.</p>`;
+
     totalFinal.innerHTML = `
-        ${
-          porcentajeDescuento > 0
-            ? `
-          <div>
-              <h2>Sub-Total:</h2>
-              <h2>$${subTotalUSD.toFixed(2)} / ${subTotalBS.toFixed(2)}Bs</h2>
-          </div>
-          <div>
-              <h2>Descuento (-${porcentajeDescuento}%):</h2>
-              <h2>-$${state.descUSD.toFixed(2)} / -${state.descBS.toFixed(2)}Bs</h2>
-          </div>
-        `
-            : ""
-        } 
-        <div class="total-procesar">
-          <div>
-            <h1>Total: </h1>
-            <h1>$${state.montoFinalUSD.toFixed(2)} / ${state.montoFinalBS.toFixed(2)}Bs</h1>
-            <br>
-            <button class="process" onclick="finalizarCompra()" id="procesarCompra">Procesar Compra <i class="fas fa-receipt"></i> </button>
-          </div>
-        </div>
+      ${filasDescuento}
+      <div class="fila-total total-final"><span>Total</span><span>${fmtUSD(state.montoFinalUSD)} / ${fmtBs(state.montoFinalBS)}</span></div>
+      ${aviso}
+      <button type="button" class="btn-primary process" id="procesarCompra" data-action="procesar">Procesar compra <i class="fas fa-receipt"></i></button>
     `;
   }
 }
 
 function configurarDelegacionEventos() {
   document.addEventListener("click", (e) => {
+    const accion = e.target.closest("[data-action]")?.dataset.action;
+    if (accion === "editar-cliente") return abrirModalCliente();
+    if (accion === "procesar") return finalizarCompra();
+    if (accion === "cerrar-edicion") return cerrarModalEditarProductoFac();
+    if (accion === "guardar-edicion") return guardarEdicionProductoFac();
+
     const botonEliminar = e.target.closest(".btn-eliminar");
     if (botonEliminar) {
       const index = parseInt(botonEliminar.getAttribute("data-index"), 10);
@@ -830,24 +858,28 @@ function abrirModalEditarProducto(index) {
     modal = document.createElement("div");
     modal.id = "modalEditarProductoFac";
     modal.className = "modal-editar-producto";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "tituloEditarProducto");
     modal.innerHTML = `
       <div class="modal-editar-inner">
-        <h3><i class="fa-solid fa-pen"></i> Editar producto</h3>
+        <h3 id="tituloEditarProducto"><i class="fa-solid fa-pen"></i> Editar producto</h3>
         <div class="campo-editar">
-          <label>Cantidad</label>
+          <label for="editFacCant">Cantidad</label>
           <input type="number" id="editFacCant" min="1" step="1">
         </div>
         <div class="campo-editar">
-          <label>Nombre</label>
+          <label for="editFacNombre">Nombre</label>
           <input type="text" id="editFacNombre">
         </div>
         <div class="campo-editar">
-          <label>Precio unitario (USD)</label>
+          <label for="editFacPrecioUnd">Precio unitario (USD)</label>
           <input type="number" id="editFacPrecioUnd" min="0" step="0.01">
         </div>
+        <p id="editFacError" class="form-error" role="alert" hidden></p>
         <div class="acciones-modal-editar">
-          <button class="btn-secondary" onclick="cerrarModalEditarProductoFac()">Cancelar</button>
-          <button class="btn-primary" onclick="guardarEdicionProductoFac()">Guardar</button>
+          <button type="button" class="btn-secondary" data-action="cerrar-edicion">Cancelar</button>
+          <button type="button" class="btn-primary" data-action="guardar-edicion">Guardar</button>
         </div>
       </div>
     `;
@@ -858,7 +890,9 @@ function abrirModalEditarProducto(index) {
   document.getElementById("editFacCant").value = producto.cantidad;
   document.getElementById("editFacNombre").value = producto.nombre;
   document.getElementById("editFacPrecioUnd").value = producto.precioUnitario;
+  ocultarError("editFacError");
   modal.classList.remove("hidden");
+  document.getElementById("editFacCant").focus();
 }
 
 function cerrarModalEditarProductoFac() {
@@ -877,8 +911,8 @@ function guardarEdicionProductoFac() {
   const nombre = document.getElementById("editFacNombre").value.trim();
   const precioUnd = Number(document.getElementById("editFacPrecioUnd").value);
 
-  if (!nombre || cant <= 0 || precioUnd <= 0) {
-    alert("Por favor, completa correctamente cantidad, nombre y precio unitario.");
+  if (!nombre || !Number.isFinite(cant) || cant <= 0 || !Number.isFinite(precioUnd) || precioUnd <= 0) {
+    mostrarError("editFacError", "Completa correctamente cantidad, nombre y precio unitario.");
     return;
   }
 
@@ -892,6 +926,14 @@ function guardarEdicionProductoFac() {
   cerrarModalEditarProductoFac();
   actualizarTabla();
 }
+
+// Esc cierra el modal de edición; Enter guarda
+document.addEventListener("keydown", (e) => {
+  const modal = document.getElementById("modalEditarProductoFac");
+  if (!modal || modal.classList.contains("hidden")) return;
+  if (e.key === "Escape") cerrarModalEditarProductoFac();
+  if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); guardarEdicionProductoFac(); }
+});
 
 // Cerrar modal editar al hacer click fuera
 document.addEventListener("click", (e) => {
@@ -956,10 +998,8 @@ async function finalizarCompra() {
   // Verificación de seguridad: no debería llegarse aquí sin datos del
   // cliente, pero se valida de nuevo por si el flujo cambia en el futuro.
   if (!state.clienteCompleto) {
-    alert(
-      "Debes completar los datos del cliente antes de finalizar la compra.",
-    );
     abrirModalCliente();
+    mostrarError("clienteError", "Completa los datos del cliente para procesar la factura.");
     return;
   }
 
