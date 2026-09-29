@@ -1,24 +1,93 @@
+/* Katoa — tokens y base compartida (Manual de identidad visual) */
+:root {
+  --terracota: #BE6E41;      /* principal: logo, decoración, iconos */
+  --terracota-700: #A65A30;  /* derivado: texto y botones (contraste AA con blanco) */
+  --terracota-800: #8A4926;
+  --salvia: #C4C8B3;
+  --salvia-soft: #EEF0E7;
+  --crema: #F5DBC1;
+  --crema-soft: #FBF3EA;
+  --malva: #D6CACA;
+  --ink: #1E293B;
+  --muted: #5B6678;
+  --line: #E6DDD5;
+  --surface: #FFFFFF;
+  --bg: #FCF8F3;
+  --danger: #B42318;
+  --danger-bg: #FDF0EE;
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(60, 40, 25, .06), 0 4px 16px rgba(60, 40, 25, .06);
+  --shadow-md: 0 8px 28px rgba(60, 40, 25, .12);
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --franja: linear-gradient(90deg, var(--terracota), var(--salvia) 45%, var(--crema) 75%, var(--malva));
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2 { font-family: var(--font-display); font-weight: 500; }
+
+:focus-visible { outline: 3px solid var(--terracota-700); outline-offset: 2px; }
+
+[hidden] { display: none !important; }
+
+/* Franja de marca (arriba de cada pantalla) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 6px;
+  background: var(--franja);
+  z-index: 10;
+}
+
+/* Botón principal */
 .primary-btn {
-    background-color: #3b82f6;
-    color: white;
-    width: 80%;
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background-color 0.2s ease, box-shadow 0.2s ease, width 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: .75rem 1.5rem;
+  font: 600 1rem var(--font-body);
+  color: #fff;
+  background: var(--terracota-700);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color .2s, box-shadow .2s, transform .1s;
 }
-
-.primary-btn:hover {
-    background-color: #2563eb;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    width: 100%;
+.primary-btn:hover { background: var(--terracota-800); box-shadow: var(--shadow); }
+.primary-btn:active { transform: scale(.99); }
+.primary-btn:disabled { opacity: .7; cursor: not-allowed; box-shadow: none; }
+.primary-btn[aria-busy="true"]::before {
+  content: "";
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255, 255, 255, .45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: giro .7s linear infinite;
 }
+@keyframes giro { to { transform: rotate(360deg); } }
 
-.primary-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    box-shadow: none;
+/* Entrada suave (se activa con body.is-ready) */
+.fade-in-up, .stagger > * { opacity: 0; transform: translateY(10px); }
+.is-ready .fade-in-up { animation: subir .5s var(--ease) forwards; }
+.is-ready .stagger > * { animation: subir .45s var(--ease) forwards; animation-delay: calc(var(--i, 0) * 45ms + 120ms); }
+@keyframes subir { to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  .fade-in-up, .stagger > * { opacity: 1; transform: none; }
 }

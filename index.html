@@ -7,93 +7,119 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/main.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <meta name="theme-color" content="#BE6E41" />
+  <link rel="stylesheet" href="assets/css/global.css" />
   <link rel="stylesheet" href="assets/css/home.css" />
   <!-- Oculta la página hasta que auth-guard.js confirme la sesión -->
   <style>html{visibility:hidden}</style>
   <script src="/js/auth-guard.js"></script>
   <link rel="icon" href="assets/img/favicon.ico">
-  <title>Katoa Global — Sistema</title>
+  <title>Panel — Katoa</title>
 </head>
 
 <body>
-  <div class="home-user">
-    <div class="home-user-info">
-      <span class="home-user-nombre" id="usuarioNombre"></span>
-      <span class="home-user-rol" id="usuarioRol"></span>
+  <header class="home-bar">
+    <div class="home-logo">Katoa</div>
+    <div class="home-user">
+      <div class="home-user-info">
+        <span class="home-user-nombre" id="usuarioNombre"></span>
+        <span class="home-user-rol" id="usuarioRol"></span>
+      </div>
+      <button type="button" class="btn-salir" id="btnSalir">
+        <i class="fa-solid fa-right-from-bracket"></i> Salir
+      </button>
     </div>
-    <button type="button" class="btn-salir" id="btnSalir">
-      <i class="fa-solid fa-right-from-bracket"></i> Salir
-    </button>
-  </div>
+  </header>
 
+  <main class="home">
   <div class="home-hero fade-in-up">
     <span class="home-eyebrow">Panel de control</span>
-    <h1>Katoa Global</h1>
-    <p>Sistema de gestión comercial. Selecciona una sección para comenzar.</p>
+    <h1 id="saludo">Hola</h1>
+    <p>Elige una sección para comenzar.</p>
   </div>
 
-  <div class="card-content stagger">
+  <section class="home-section" data-seccion>
+    <h2 class="section-title">Ventas</h2>
+    <div class="card-content stagger">
     <!-- Accesible para: personal, encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/facturacion.html" data-personal-access>
       <div class="card-icon"><i class="fa-solid fa-cart-shopping"></i></div>
-      <h2>Nueva venta</h2>
+      <h3>Nueva venta</h3>
       <p>Registra productos y genera facturas al instante.</p>
     </a>
-
     <!-- Accesible para: personal, encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/pedidos.html" data-personal-access>
       <div class="card-icon">
         <i class="fab fa-whatsapp"></i>
       </div>
-      <h2>Pedidos</h2>
+      <h3>Pedidos</h3>
       <p>Registra ventas y envía facturas a los clientes por WhatsApp.</p>
     </a>
+    <!-- Accesible para: personal, encargado, admin y sysAdmin -->
+    <a class="card" href="assets/pages/creditos.html" data-personal-access>
+      <div class="card-icon"><i class="fa-solid fa-credit-card"></i></div>
+      <h3>Nuevo crédito</h3>
+      <p>Ventas por credito de Jenk te acredita.</p>
+    </a>
+    </div>
+  </section>
 
+  <section class="home-section" data-seccion>
+    <h2 class="section-title">Operación</h2>
+    <div class="card-content stagger">
+    <!-- Accesible para: encargado, admin y sysAdmin -->
+    <a class="card" href="assets/pages/verificacion.html" data-encargado-access>
+      <div class="card-icon"><i class="fa-solid fa-square-check"></i></div>
+      <h3>Verificación</h3>
+      <p>Confirma pagos y cierra comprobantes pendientes.</p>
+    </a>
     <!-- Accesible para: encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/historial.html" data-encargado-access>
       <div class="card-icon"><i class="fas fa-receipt"></i></div>
-      <h2>Facturas de hoy</h2>
+      <h3>Facturas de hoy</h3>
       <p>Revisa las transacciones del día actual.</p>
     </a>
-
     <!-- Accesible para: encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/cobros.html" data-encargado-access>
       <div class="card-icon"><i class="fa-solid fa-hand-holding-dollar"></i></div>
-      <h2>Cobros</h2>
+      <h3>Cobros</h3>
       <p>Cobra las cuotas de "Jenk Te Acredita" y revisa vencidas.</p>
     </a>
-
     <!-- Accesible para: encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/inventario.html" data-encargado-access>
       <div class="card-icon"><i class="fas fa-boxes-stacked"></i></div>
-      <h2>Inventario</h2>
+      <h3>Inventario</h3>
       <p>Gestiona el stock de bisutería con fotos y códigos QR.</p>
     </a>
+    </div>
+  </section>
 
+  <section class="home-section" data-seccion>
+    <h2 class="section-title">Administración</h2>
+    <div class="card-content stagger">
     <!-- Accesible para: admin y sysAdmin -->
     <a class="card" href="assets/pages/administrador.html" data-admin-only>
       <div class="card-icon"><i class="fas fa-chart-bar"></i></div>
-      <h2>Administrador</h2>
+      <h3>Administrador</h3>
       <p>Estadísticas, ventas del mes y comisiones.</p>
     </a>
-
     <!-- Accesible para: encargado, admin y sysAdmin -->
     <a class="card" href="assets/pages/reportes.html" data-encargado-access>
       <div class="card-icon"><i class="fas fa-print"></i></div>
-      <h2>Reportes</h2>
+      <h3>Reportes</h3>
       <p>Cierre de caja, reimpresión de facturas y reportes imprimibles.</p>
     </a>
-
     <!-- Accesible para: sysAdmin únicamente -->
     <a class="card" href="assets/pages/notificaciones.html" data-sysadmin-only>
       <div class="card-icon"><i class="fas fa-bell"></i></div>
-      <h2>Notificaciones</h2>
+      <h3>Notificaciones</h3>
       <p>Publica avisos de cambios y novedades para todo el personal.</p>
     </a>
+    </div>
+  </section>
 
-  </div>
+  </main>
 
   <script src="js/index.js"></script>
 </body>

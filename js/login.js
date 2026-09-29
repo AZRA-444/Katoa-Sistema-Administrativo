@@ -11,8 +11,10 @@
     const mostrarError = (msg) => {
         errorEl.textContent = msg;
         errorEl.hidden = false;
+        [emailInput, passInput].forEach((el) => el.setAttribute('aria-invalid', 'true'));
     };
     const limpiarError = () => {
+        [emailInput, passInput].forEach((el) => el.removeAttribute('aria-invalid'));
         errorEl.hidden = true;
         errorEl.textContent = '';
     };
@@ -34,6 +36,7 @@
 
     const setCargando = (cargando) => {
         boton.disabled = cargando;
+        boton.setAttribute('aria-busy', cargando);
         emailInput.readOnly = cargando;
         passInput.readOnly = cargando;
         boton.textContent = cargando ? 'Verificando…' : textoBoton;
