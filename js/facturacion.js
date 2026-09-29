@@ -447,7 +447,7 @@ function htmlMontoDolares(t) {
     let detalle = '';
     if (!state.descuentoUsd) detalle = 'Descuento desactivado: se cobra el precio de lista.';
     else if (!(state.tasaUsdt > 0)) detalle = 'Ingresa la tasa USDT para aplicar la conversión.';
-    else if (ahorro > 0) detalle = `Ahorro ${usd(ahorro)} · ${usd(t.total)} × ${state.tasa.toFixed(2)} ÷ ${state.tasaUsdt.toFixed(2)}`;
+    else if (ahorro > 0) detalle = `Ahorro ${usd(ahorro)} · ${usd(t.total)}`;
     return `<div id="pagoMontoUsd" class="pago-monto"><small>Monto a pagar en dólares</small><strong>${usd(aPagar)}</strong>` +
         (detalle ? `<span class="pago-ahorro">${detalle}</span>` : '') + `</div>`;
 }
