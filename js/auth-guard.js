@@ -1,19 +1,3 @@
-/*
- * Cargar en el <head> de cada página protegida, SIN defer/async:
- *   <script src="/js/auth-guard.js"></script>
- *
- * - Oculta la página hasta verificar la sesión (si no hay, va a /login.html).
- * - Quita del DOM los elementos que el rol del usuario no puede usar:
- *       data-personal-access   personal, encargado, admin, sysAdmin
- *       data-encargado-access  encargado, admin, sysAdmin
- *       data-admin-only        admin, sysAdmin
- *       data-sysadmin-only     sysAdmin
- * - Expone window.Auth: usuario, listo, tieneRol(), tieneNivel(),
- *   aplicarPermisos(), cerrarSesion().
- *
- * Nota: esto controla lo que se VE. La seguridad real la aplican las
- * funciones /api/*, que leen la cookie HttpOnly y validan el rol.
- */
 (() => {
     'use strict';
 

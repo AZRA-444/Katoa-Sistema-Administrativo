@@ -6,6 +6,7 @@ const ENDPOINTS = {
     factura: '/api/enviar-factura',
     sesion: '/api/sesion',
     tasa: 'https://open.er-api.com/v6/latest/USD',
+    tasaUsdt: 'https://ve.dolarapi.com/v1/dolares/paralelo', // dólar paralelo (referencia USDT/Binance)
 };
 
 const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
@@ -35,6 +36,17 @@ export async function obtenerTasa() {
         return Number(d?.rates?.VES) || 0;
     } catch {
         return 0; // sin conexión: se mantiene la tasa guardada o la manual
+    }
+}
+
+/** Tasa USDT en Bs (dólar paralelo). Devuelve 0 si falla: el vendedor la escribe a mano. */
+export async function obtenerTasaUsdt() {
+    try {
+        const r = await fetch(ENDPOINTS.tasaUsdt, { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        return Number(d?.promedio) || Number(d?.venta) || 0;
+    } catch {
+        return 0;
     }
 }
 

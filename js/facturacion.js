@@ -4,10 +4,10 @@
  * Formateadores → utils/format.js · Llamadas al servidor → utils/api.js
  * ========================================================================== */
 import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164 } from './utils/format.js';
-import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, enviarFactura } from './utils/api.js';
+import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura } from './utils/api.js';
 
 //--- CONSTANTES ---//
-const STORAGE = { vendedor: 'vendedorActual', tasa: 'tasaFacturacion' };
+const STORAGE = { vendedor: 'vendedorActual', tasa: 'tasaFacturacion', tasaUsdt: 'tasaUsdtFacturacion' };
 const BANCOS = [
     ['Banesco', 'Banesco'],
     ['Venezuela', 'Banco de Venezuela'],
@@ -15,11 +15,18 @@ const BANCOS = [
     ['Banplus', 'Banplus'],
 ];
 
+// Métodos que se cobran en dólares: el total se convierte con la tasa USDT (ver montoEnDolares).
+const METODOS_USD = new Set(['ED', 'ZELLE', 'BINANCE']);
+const METODOS_COMPROBANTE = new Set(['PM', 'ZELLE', 'BINANCE']);
+
 //--- ESTADO ---//
 const state = {
     items: [],            // productos de la factura
     tasa: 0,              // Bs por $
     tasaManual: false,    // true si el vendedor la escribió a mano
+    tasaUsdt: 0,          // Bs por USDT (para cobros en dólares)
+    tasaUsdtManual: false,
+    descuentoUsd: true,   // interruptor: aplicar la conversión USDT en pagos en dólares
     cliente: null,        // datos ya validados del cliente
     comprobante: null,    // foto del pago móvil (data URL JPEG comprimido)
     idFactura: null,      // se conserva entre reintentos para no duplicar la factura
@@ -58,6 +65,15 @@ export function calcularTotales(items, tasa) {
     const total = round2(items.reduce((a, p) => a + totalLinea(p), 0));
     return { total, totalBs: round2(total * tasa) };
 }
+
+/**
+ * Monto a cobrar cuando se paga en dólares (efectivo, Zelle, Binance):
+ * total en Bs (tasa BCV) ÷ tasa USDT. Ej.: 100$ × 857,89 = 85.789 Bs ÷ 960 = 89,36$.
+ * Nunca supera el total (si USDT < BCV no hay recargo). Con activo = false se cobra el total de lista, sin conversión.
+ * Debe coincidir con monto_en_dolares en api/enviar-factura.py.
+ */
+export const montoEnDolares = (t, tasaUsdt, activo = true) =>
+    activo && tasaUsdt > 0 ? Math.min(t.total, round2(t.totalBs / tasaUsdt)) : t.total;
 
 export const calcularVuelto = (recibido, total) => (recibido >= total ? round2(recibido - total) : 0);
 
@@ -189,6 +205,26 @@ function initTasa() {
     // La tasa en línea no pisa lo que el vendedor escribió a mano, ni cambia con el pago en pantalla.
     obtenerTasa().then((v) => {
         if (v > 0 && !state.tasaManual && !input.readOnly) { input.value = v.toFixed(2); fijar(v); }
+    });
+}
+
+function initTasaUsdt() {
+    const input = $('#tasaUsdt');
+    const fijar = (v, manual = false) => {
+        state.tasaUsdt = v;
+        state.tasaUsdtManual ||= manual;
+        state.idFactura = null; // cambió el cobro: el próximo envío usa un id nuevo
+        localStorage.setItem(STORAGE.tasaUsdt, v);
+    };
+
+    const guardada = Number(localStorage.getItem(STORAGE.tasaUsdt)) || 0;
+    if (guardada) { input.value = guardada.toFixed(2); state.tasaUsdt = guardada; }
+
+    input.addEventListener('input', () => fijar(Number(input.value) || 0, true));
+
+    // Igual que la tasa BCV: la tasa en línea no pisa lo escrito a mano ni cambia con el pago en pantalla.
+    obtenerTasaUsdt().then((v) => {
+        if (v > 0 && !state.tasaUsdtManual && !input.readOnly) { input.value = v.toFixed(2); fijar(v); }
     });
 }
 
@@ -384,7 +420,7 @@ function mostrarSeccionPago() {
     $('#seccionFactura').hidden = true;
     $('#seccionPago').hidden = false;
     $('#btnProcesar').hidden = true;
-    $('#tasa').readOnly = true; // con la tasa fija, los montos del pago no cambian
+    $('#tasa').readOnly = $('#tasaUsdt').readOnly = true; // con las tasas fijas, los montos del pago no cambian
     selectMetodoPago($('#metodoPago').value);
 }
 
@@ -393,7 +429,7 @@ function ocultarSeccionPagos() {
     $('#seccionFactura').hidden = false;
     $('#seccionPago').hidden = true;
     $('#btnProcesar').hidden = false;
-    $('#tasa').readOnly = false;
+    $('#tasa').readOnly = $('#tasaUsdt').readOnly = false;
 }
 
 const mostrarPagoError = (msg, campoId) => {
@@ -402,10 +438,36 @@ const mostrarPagoError = (msg, campoId) => {
     if (campoId) $(`#${campoId}`)?.focus();
 };
 
+const aPagarUsd = (t) => montoEnDolares(t, state.tasaUsdt, state.descuentoUsd);
+
+/** Caja con el monto a cobrar en dólares y el detalle de la conversión (o el aviso de descuento desactivado). */
+function htmlMontoDolares(t) {
+    const aPagar = aPagarUsd(t);
+    const ahorro = round2(t.total - aPagar);
+    let detalle = '';
+    if (!state.descuentoUsd) detalle = 'Descuento desactivado: se cobra el precio de lista.';
+    else if (!(state.tasaUsdt > 0)) detalle = 'Ingresa la tasa USDT para aplicar la conversión.';
+    else if (ahorro > 0) detalle = `Ahorro ${usd(ahorro)} · ${usd(t.total)} × ${state.tasa.toFixed(2)} ÷ ${state.tasaUsdt.toFixed(2)}`;
+    return `<div id="pagoMontoUsd" class="pago-monto"><small>Monto a pagar en dólares</small><strong>${usd(aPagar)}</strong>` +
+        (detalle ? `<span class="pago-ahorro">${detalle}</span>` : '') + `</div>`;
+}
+
+/** Interruptor del descuento: actualiza el monto y el vuelto sin borrar lo que el vendedor ya escribió. */
+function alternarDescuento(activo) {
+    state.descuentoUsd = activo;
+    state.idFactura = null; // cambió el cobro: el próximo envío usa un id nuevo
+    $('#pagoError').hidden = true;
+    const caja = $('#pagoMontoUsd');
+    if (caja) caja.outerHTML = htmlMontoDolares(calcularTotales(state.items, state.tasa));
+    $('#EDMontoRecibido')?.dispatchEvent(new Event('input')); // recalcula el vuelto
+}
+
 function selectMetodoPago(valor) {
     const cont = $('#paymentDetails');
     const t = calcularTotales(state.items, state.tasa);
     state.comprobante = null;
+    $('#filaDescuento').hidden = !METODOS_USD.has(valor);
+    $('#descUsdt').checked = state.descuentoUsd;
     $('#pagoError').hidden = true;
 
     const monto = (titulo, texto) => `<div class="pago-monto"><small>${titulo}</small><strong>${texto}</strong></div>`;
@@ -415,6 +477,11 @@ function selectMetodoPago(valor) {
         campo(id, 'Observaciones', `<textarea id="${id}" rows="3" maxlength="500" placeholder="Detalla alguna novedad…"></textarea>`, 'span');
     const mixto = `${usd(t.total)} / ${bs(t.totalBs)}`;
 
+    const comprobante = `<div class="field span"><span class="lbl">Comprobante de pago (opcional)</span>
+         <input id="receiptCapture" type="file" accept="image/*" capture="environment" hidden>
+         <button id="btnCapture" class="btn btn-ghost" type="button"><i class="fas fa-camera"></i> Adjuntar o tomar foto</button>
+         <div id="receiptPreview" class="receipt-preview" hidden></div></div>`;
+
     if (valor === 'PM') {
         cont.innerHTML =
             monto('Monto a transferir', mixto) +
@@ -423,20 +490,25 @@ function selectMetodoPago(valor) {
                 BANCOS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('') + `</select>`) +
             campo('pmRef', 'Número de referencia',
                 `<input id="pmRef" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Últimos 4 a 12 dígitos">`) +
-            `<div class="field span"><span class="lbl">Comprobante de pago (opcional)</span>
-         <input id="receiptCapture" type="file" accept="image/*" capture="environment" hidden>
-         <button id="btnCapture" class="btn btn-ghost" type="button"><i class="fas fa-camera"></i> Adjuntar o tomar foto</button>
-         <div id="receiptPreview" class="receipt-preview" hidden></div></div>`;
+            comprobante;
         activarComprobante();
     } else if (valor === 'PVD' || valor === 'PVC') {
         cont.innerHTML = monto('Monto a cobrar en el punto de venta', mixto);
     } else if (valor === 'ED') {
         cont.innerHTML =
-            monto('Monto a pagar', usd(t.total)) +
+            htmlMontoDolares(t) +
             campo('EDMontoRecibido', 'Monto recibido ($)', `<input id="EDMontoRecibido" type="number" min="0" step="0.01" inputmode="decimal" placeholder="ej: 20">`) +
             campo('EDVueltoEntrega', 'Vuelto a entregar ($)', `<input id="EDVueltoEntrega" readonly placeholder="0,00">`) +
             observaciones('observacionesED');
-        activarVuelto($('#EDMontoRecibido'), $('#EDVueltoEntrega'), t.total, usd);
+        activarVuelto($('#EDMontoRecibido'), $('#EDVueltoEntrega'), () => aPagarUsd(calcularTotales(state.items, state.tasa)), usd);
+    } else if (valor === 'ZELLE' || valor === 'BINANCE') {
+        cont.innerHTML =
+            htmlMontoDolares(t) +
+            campo('refDigital', valor === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia',
+                `<input id="refDigital" autocomplete="off" autocapitalize="characters" maxlength="30" placeholder="4 a 30 letras o números">`) +
+            comprobante +
+            observaciones('observacionesDIG');
+        activarComprobante();
     } else if (valor === 'EBS') {
         cont.innerHTML =
             monto('Monto a pagar', bs(t.totalBs)) +
@@ -448,11 +520,13 @@ function selectMetodoPago(valor) {
     }
 
     $('#pmRef')?.addEventListener('input', (e) => { e.target.value = soloDigitos(e.target.value); });
+    $('#refDigital')?.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase(); });
 }
 
 function activarVuelto(entrada, salida, total, formato) {
     entrada.addEventListener('input', () => {
-        salida.value = entrada.value === '' ? '' : formato(calcularVuelto(Number(entrada.value) || 0, total));
+        const monto = typeof total === 'function' ? total() : total;
+        salida.value = entrada.value === '' ? '' : formato(calcularVuelto(Number(entrada.value) || 0, monto));
     });
 }
 
@@ -504,6 +578,17 @@ function leerPago() {
     const t = calcularTotales(state.items, state.tasa);
     const val = (id) => $(`#${id}`)?.value.trim() ?? '';
     const pago = { metodo_pago: metodo, banco: 'N/A', referencia: 'N/A', observaciones: '' };
+    const aPagar = aPagarUsd(t);
+
+    if (METODOS_USD.has(metodo)) {
+        pago.aplicar_descuento = state.descuentoUsd; // el servidor lo valida y lo registra
+        if (state.descuentoUsd) {
+            if (!(state.tasaUsdt > 0)) return { error: 'Ingresa la tasa USDT o desactiva el descuento.', campo: 'tasaUsdt' };
+            if (state.tasaUsdt > state.tasa * 2) return { error: 'La tasa USDT parece incorrecta (más del doble de la tasa BCV).', campo: 'tasaUsdt' };
+            pago.tasa_usdt = state.tasaUsdt;
+            pago.monto_usd = aPagar; // el servidor lo recalcula y rechaza si no cuadra
+        }
+    }
 
     if (metodo === 'PM') {
         pago.banco = val('bankSelect');
@@ -512,13 +597,17 @@ function leerPago() {
         if (!/^\d{4,12}$/.test(pago.referencia)) return { error: 'La referencia debe tener entre 4 y 12 dígitos.', campo: 'pmRef' };
     } else if (metodo === 'ED' || metodo === 'EBS') {
         const id = metodo === 'ED' ? 'EDMontoRecibido' : 'EBSMontoRecibido';
-        const total = metodo === 'ED' ? t.total : t.totalBs;
+        const total = metodo === 'ED' ? aPagar : t.totalBs;
         if (val(id) !== '') {
             const recibido = Number(val(id));
             if (!(recibido >= total)) return { error: 'El monto recibido no cubre el total de la factura.', campo: id };
             pago.monto_recibido = recibido;
         }
         if (metodo === 'ED') pago.observaciones = val('observacionesED');
+    } else if (metodo === 'ZELLE' || metodo === 'BINANCE') {
+        pago.referencia = val('refDigital');
+        pago.observaciones = val('observacionesDIG');
+        if (!/^[A-Z0-9]{4,30}$/.test(pago.referencia)) return { error: 'La referencia debe tener entre 4 y 30 letras o números.', campo: 'refDigital' };
     } else if (metodo === 'OTROS') {
         pago.observaciones = val('observacionesOTROS');
         if (!pago.observaciones) return { error: 'Describe el método de pago en las observaciones.', campo: 'observacionesOTROS' };
@@ -550,10 +639,10 @@ async function finalizarCompra() {
         id_factura: state.idFactura,
         nombre: c.nombre, apellido: c.apellido, cedula: soloDigitos(c.cedula), telefono, vendedor: c.vendedor,
         tasa_cambio: state.tasa,
-        subtotal_usd: t.total, total_usd: t.total, // sin descuentos: subtotal = total (la BD conserva ambas columnas)
+        subtotal_usd: t.total, total_usd: t.total, // precio de lista (BCV); el cobro en dólares viaja en monto_usd
         subtotal_bs: t.totalBs, total_bs: t.totalBs,
         ...lectura.pago,
-        comprobante: lectura.pago.metodo_pago === 'PM' ? state.comprobante : null,
+        comprobante: METODOS_COMPROBANTE.has(lectura.pago.metodo_pago) ? state.comprobante : null,
         productos: state.items.map((p) => ({
             nombre: p.nombre, cantidad: p.cantidad, precioUnitario: p.precioUnitario,
             precioTotal: totalLinea(p), idInventario: p.idInventario,
@@ -584,6 +673,7 @@ async function init() {
     if (window.Auth && !(await window.Auth.listo)) return;
 
     initTasa();
+    initTasaUsdt();
     initCliente();
     initProducto();
     initFactura();
@@ -593,6 +683,7 @@ async function init() {
     $('#btnVolver').addEventListener('click', ocultarSeccionPagos);
     $('#btnFinalizar').addEventListener('click', finalizarCompra);
     $('#metodoPago').addEventListener('change', (e) => selectMetodoPago(e.target.value));
+    $('#descUsdt').addEventListener('change', (e) => alternarDescuento(e.target.checked));
 
     const dlgEstado = $('#dlgEstado');
     dlgEstado.addEventListener('cancel', (e) => { if (state.enviando) e.preventDefault(); });

@@ -29,12 +29,15 @@ TOLERANCIA = Decimal("0.02")  # diferencia admitida por redondeo JS vs Python
 BUCKET = "comprobantes"
 PREFIJO_JPEG = "data:image/jpeg;base64,"
 
-METODOS = {"PM", "PVD", "PVC", "ED", "EBS", "OTROS"}
+METODOS = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}
+METODOS_USD = {"ED", "ZELLE", "BINANCE"}  # se cobran en dólares con la tasa USDT
+MAX_BRECHA_USDT = Decimal(2)  # tasa USDT > 2× BCV se considera un error de digitación
 
 ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
 CEDULA_RE = re.compile(r"^[\d.]+$")
 TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
 REFERENCIA_RE = re.compile(r"^\d{4,12}$")
+REFERENCIA_DIGITAL_RE = re.compile(r"^[A-Z0-9]{4,30}$")  # Zelle / Binance
 
 MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
 
@@ -84,6 +87,12 @@ def _num(d):
 def calcular_totales(lineas, tasa):
     total = sum((l["total"] for l in lineas), Decimal(0))
     return {"total": total, "total_bs": _r2(total * tasa)}
+
+
+def monto_en_dolares(t, tasa_usdt):
+    """Cobro en dólares: total en Bs (tasa BCV) ÷ tasa USDT. Ej.: 100$ × 857,89 ÷ 960 = 89,36$.
+    Nunca supera el total. Debe coincidir con montoEnDolares en js/facturacion.js."""
+    return min(t["total"], _r2(t["total_bs"] / tasa_usdt))
 
 
 def _decodificar_comprobante(valor):
@@ -156,18 +165,42 @@ def validar(p):
     observaciones = _texto(p.get("observaciones"), "las observaciones", 500, obligatorio=False)
     comprobante = None
 
+    a_pagar = None  # cobro en dólares (solo métodos en USD)
+    if metodo in METODOS_USD:
+        aplicar = p.get("aplicar_descuento")
+        if not isinstance(aplicar, bool):
+            _err("Falta indicar si se aplica el descuento. Recarga la página e inténtalo de nuevo.")
+        if aplicar:
+            tasa_usdt = _positivo(p.get("tasa_usdt"), "la tasa USDT", Decimal(1_000_000))
+            if tasa_usdt > tasa * MAX_BRECHA_USDT:
+                _err("La tasa USDT parece incorrecta. Revísala e inténtalo de nuevo.")
+            a_pagar = monto_en_dolares(t, tasa_usdt)
+            monto_usd = _positivo(p.get("monto_usd"), "el monto en dólares", Decimal(10) ** 12)
+            if abs(monto_usd - a_pagar) > TOLERANCIA:
+                _err("El monto en dólares no coincide con el cálculo del servidor. Recarga la página e inténtalo de nuevo.")
+            nota = f"Descuento USDT aplicado · Tasa {tasa_usdt:.2f} · Cobro ${a_pagar:.2f} (ahorro ${t['total'] - a_pagar:.2f})"
+        else:
+            a_pagar = t["total"]  # precio de lista, sin conversión ni descuento
+            nota = f"Sin descuento USDT · Cobro ${a_pagar:.2f} a precio de lista"
+        observaciones = f"{observaciones} | {nota}" if observaciones else nota
+
     if metodo == "PM":
         banco = _texto(p.get("banco"), "el banco", 40)
         referencia = _texto(p.get("referencia"), "la referencia", 12)
         if not REFERENCIA_RE.match(referencia):
             _err("La referencia debe tener entre 4 y 12 dígitos.")
         comprobante = _decodificar_comprobante(p.get("comprobante"))
+    elif metodo in ("ZELLE", "BINANCE"):
+        referencia = _texto(p.get("referencia"), "la referencia", 30).upper()
+        if not REFERENCIA_DIGITAL_RE.match(referencia):
+            _err("La referencia debe tener entre 4 y 30 letras o números.")
+        comprobante = _decodificar_comprobante(p.get("comprobante"))
     elif metodo == "OTROS":
         if not observaciones:
             _err("Describe el método de pago en las observaciones.")
     elif metodo in ("ED", "EBS") and p.get("monto_recibido") is not None:
         recibido = _positivo(p.get("monto_recibido"), "el monto recibido", Decimal(10) ** 12)
-        total_moneda = t["total"] if metodo == "ED" else t["total_bs"]
+        total_moneda = a_pagar if metodo == "ED" else t["total_bs"]
         if recibido + TOLERANCIA < total_moneda:
             _err("El monto recibido no cubre el total de la factura.")
         simbolo = "$" if metodo == "ED" else "Bs"
@@ -177,7 +210,8 @@ def validar(p):
     factura = {
         "id_factura": id_factura, "nombre": nombre, "apellido": apellido, "cedula": cedula,
         "telefono": telefono, "vendedor": vendedor,
-        "subtotal_usd": float(t["total"]), "total_usd": float(t["total"]),  # sin descuentos: subtotal = total
+        "subtotal_usd": float(t["total"]),  # precio de lista (tasa BCV)
+        "total_usd": float(a_pagar if a_pagar is not None else t["total"]),  # lo realmente cobrado en USD
         "subtotal_bs": float(t["total_bs"]), "total_bs": float(t["total_bs"]),
         "tasa_cambio": float(tasa),
         "metodo_pago": metodo, "referencia": referencia, "banco": banco,
