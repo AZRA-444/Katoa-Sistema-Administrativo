@@ -42,7 +42,7 @@ body {
 .home-user-info {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: left;
 }
 
 .home-user-nombre {
