@@ -1,150 +1,80 @@
-"""
-/api/guardar-cliente
+/* Llamadas al servidor. Usan la sesión (cookie HttpOnly) creada por /api/login. */
 
-POST: Guarda o actualiza un cliente en Supabase.
-GET:  Busca un cliente por cédula para autorrellenado (?cedula=12345678).
-"""
-import os
-import re
-import sys
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+const ENDPOINTS = {
+    inventario: '/api/inventario',
+    clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
+    factura: '/api/enviar-factura',
+    sesion: '/api/sesion',
+    tasa: 'https://open.er-api.com/v6/latest/USD',
+};
 
-import requests
+const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
 
-sys.path.insert(0, os.path.dirname(__file__))
-import _comun as c  # noqa: E402
+// El access token dura ~1 h; /api/sesion lo renueva con el refresh token.
+const renovarSesion = () =>
+    fetch(ENDPOINTS.sesion, { credentials: 'same-origin', cache: 'no-store' }).then((r) => r.ok).catch(() => false);
 
-MAX_BODY = 64 * 1024
-CEDULA_RE = re.compile(r"^[\d.]+$")
-TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
+async function request(url, opciones = {}, reintentar = true) {
+    const headers = { Accept: 'application/json', ...(opciones.body ? { 'Content-Type': 'application/json' } : {}) };
+    const r = await fetch(url, { credentials: 'same-origin', ...opciones, headers });
+    if (r.status === 401) {
+        // Sesión vencida: se intenta renovar UNA vez antes de sacar al usuario (no perder la factura en curso).
+        if (reintentar && (await renovarSesion())) return request(url, opciones, false);
+        irALogin();
+        throw new Error('Sesión expirada');
+    }
+    return r;
+}
 
-MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
+const leerJson = async (r) => ((r.headers.get('content-type') || '').includes('application/json') ? r.json() : null);
 
+//--- TASA DEL DÍA ---//
+export async function obtenerTasa() {
+    try {
+        const d = await (await fetch(ENDPOINTS.tasa)).json();
+        return Number(d?.rates?.VES) || 0;
+    } catch {
+        return 0; // sin conexión: se mantiene la tasa guardada o la manual
+    }
+}
 
-def _err(mensaje, status=400):
-    raise c.ErrorPeticion(status, mensaje)
+//--- INVENTARIO ---//
+/** GET /api/inventario?q= → [{id,nombre,color,calibre,cantidad,precio_detal,precio_mayor,cantidad_mayor}] */
+export async function buscarProductos(q, signal) {
+    try {
+        const r = await request(`${ENDPOINTS.inventario}?q=${encodeURIComponent(q)}`, { signal });
+        const d = r.ok ? await leerJson(r) : null;
+        return Array.isArray(d) ? d : d?.data ?? [];
+    } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        return [];
+    }
+}
 
+//--- CLIENTES ---//
+/** GET /api/guardar-cliente?cedula= → {status:'ok', cliente:{cedula,nombre,apellido,telefono}} | 404. Devuelve el cliente o null. */
+export async function buscarCliente(cedula) {
+    try {
+        const r = await request(`${ENDPOINTS.clientes}?cedula=${encodeURIComponent(cedula)}`);
+        const d = r.ok ? await leerJson(r) : null;
+        return d?.status === 'ok' ? d.cliente : null;
+    } catch {
+        return null;
+    }
+}
 
-def _texto(valor, nombre, maximo, obligatorio=True):
-    if valor is None:
-        valor = ""
-    if not isinstance(valor, str):
-        _err(f"Valor inválido en {nombre}.")
-    valor = valor.strip()
-    if obligatorio and not valor:
-        _err(f"Falta {nombre}.")
-    if len(valor) > maximo:
-        _err(f"{nombre[0].upper() + nombre[1:]} es demasiado largo.")
-    if any(ch < " " and ch not in "\n\t" for ch in valor):
-        _err(f"Caracteres no permitidos en {nombre}.")
-    return valor
+export const guardarCliente = (c) =>
+    request(ENDPOINTS.clientes, { method: 'POST', body: JSON.stringify(c), keepalive: true }).catch(() => { });
 
-
-def _sesion_activa(h):
-    access = c.leer_cookies(h).get(c.COOKIE_ACCESS)
-    if not access:
-        return False
-    usuario = c.auth_usuario(access)
-    if not usuario:
-        return False
-    perfil = c.obtener_perfil(usuario["id"])
-    return bool(perfil and perfil.get("activo"))
-
-
-def _error(h, status, mensaje):
-    c.responder(h, status, {"status": "error", "message": mensaje})
-
-
-class handler(BaseHTTPRequestHandler):
-    # ── GET: Consulta para Autorrellenado ───────────────────────────────────
-    def do_GET(self):
-        if not c.config_completa():
-            return _error(self, 500, "Configuración del servidor incompleta.")
-        if not c.origen_valido(self):
-            return _error(self, 403, "Origen no permitido.")
-        try:
-            if not _sesion_activa(self):
-                return _error(self, 401, "Sesión expirada.")
-
-            # Extraer cédula de los parámetros (?cedula=12345678)
-            parsed_url = urlparse(self.path)
-            query_params = parse_qs(parsed_url.query)
-            cedula_raw = query_params.get("cedula", [None])[0]
-
-            cedula = _texto(cedula_raw, "la cédula", 15)
-            if not CEDULA_RE.match(cedula) or not 6 <= len(re.sub(r"\D", "", cedula)) <= 8:
-                _err("Cédula inválida.")
-
-            # Consulta directa a Supabase por cédula
-            url = f"{c.SUPABASE_URL}/rest/v1/clientes?cedula=eq.{cedula}&select=cedula,nombre,apellido,telefono"
-            r = c._http.get(url, headers=c._hdr_servicio(), timeout=c.TIMEOUT)
-
-            if r.status_code != 200:
-                _err("Error al consultar el cliente.", 502)
-
-            res = r.json()
-            if not res:
-                return c.responder(self, 404, {"status": "no_encontrado", "message": "Cliente no registrado."})
-
-            cliente = res[0]
-            return c.responder(
-                self, 200,
-                {"status": "ok", "cliente": cliente}
-            )
-
-        except c.ErrorPeticion as e:
-            return _error(self, e.status, e.mensaje)
-        except (requests.RequestException, RuntimeError):
-            return _error(self, 503, MSG_NO_DISPONIBLE)
-
-    # ── POST: Guardar o Actualizar Cliente ─────────────────────────────────
-    def do_POST(self):
-        if not c.config_completa():
-            return _error(self, 500, "Configuración del servidor incompleta.")
-        if not c.origen_valido(self):
-            return _error(self, 403, "Origen no permitido.")
-        try:
-            if not _sesion_activa(self):
-                return _error(self, 401, "Sesión expirada.")
-
-            datos = c.leer_json(self, MAX_BODY)
-            
-            cedula = _texto(datos.get("cedula"), "la cédula", 15)
-            if not CEDULA_RE.match(cedula) or not 6 <= len(re.sub(r"\D", "", cedula)) <= 8:
-                _err("Cédula inválida.")
-
-            nombre = _texto(datos.get("nombre"), "el nombre", 60)
-            apellido = _texto(datos.get("apellido"), "el apellido", 60, obligatorio=False)
-            telefono = _texto(datos.get("telefono"), "el teléfono", 16, obligatorio=False)
-            if telefono and not TELEFONO_RE.match(telefono):
-                _err("Teléfono inválido.")
-
-            cliente = {
-                "cedula": cedula,
-                "nombre": nombre,
-                "apellido": apellido,
-                "telefono": telefono,
-            }
-
-            r = c._http.post(
-                f"{c.SUPABASE_URL}/rest/v1/rpc/guardar_cliente",
-                json={"p_cliente": cliente},
-                headers=c._hdr_servicio(),
-                timeout=c.TIMEOUT,
-            )
-            if r.status_code not in (200, 204):
-                _err("No se pudo guardar el cliente.", 502)
-
-            return c.responder(self, 200, {"status": "ok", "message": "Cliente guardado."})
-
-        except c.ErrorPeticion as e:
-            return _error(self, e.status, e.mensaje)
-        except (requests.RequestException, RuntimeError):
-            return _error(self, 503, MSG_NO_DISPONIBLE)
-
-    do_PUT = do_PATCH = do_DELETE = c.metodo_no_permitido
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.end_headers()
+//--- FACTURA ---//
+/** POST /api/enviar-factura. Lanza Error con el mensaje que se muestra al usuario. */
+export async function enviarFactura(payload) {
+    const r = await request(ENDPOINTS.factura, { method: 'POST', body: JSON.stringify(payload) });
+    if (r.status === 404) throw new Error('El servicio de facturación no está disponible en el servidor.');
+    const d = await leerJson(r);
+    if (!d) throw new Error('El servidor no devolvió una respuesta válida.');
+    // Reintento de una factura que ya se había guardado (misma id): se trata como éxito.
+    if (d.status === 'duplicada') return d;
+    if (!r.ok || d.status === 'error') throw new Error(d.message || d.error || 'Error desconocido del servidor.');
+    return d;
+}
