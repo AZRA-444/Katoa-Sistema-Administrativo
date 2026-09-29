@@ -15,10 +15,6 @@ const BANCOS = [
     ['Banplus', 'Banplus'],
 ];
 
-// [monto mínimo (exclusivo), % de descuento], de mayor a menor.
-// Debe coincidir con DESCUENTOS en api/enviar-factura.py (el servidor recalcula y rechaza si no cuadra).
-export const DESCUENTOS = [[100, 25], [50, 20], [20, 15]];
-
 //--- ESTADO ---//
 const state = {
     items: [],            // productos de la factura
@@ -27,6 +23,7 @@ const state = {
     cliente: null,        // datos ya validados del cliente
     comprobante: null,    // foto del pago móvil (data URL JPEG comprimido)
     idFactura: null,      // se conserva entre reintentos para no duplicar la factura
+    nuevoId: null,        // fila recién agregada (para resaltarla una vez)
     enviando: false,
 };
 let seq = 0;
@@ -39,6 +36,15 @@ function el(tag, props = {}, ...hijos) {
     return n;
 }
 
+/** Cambia el texto y, solo si cambió, reinicia el "latido" (clase .pulso). */
+function pulso(nodo, texto) {
+    if (nodo.textContent === texto) return;
+    nodo.textContent = texto;
+    nodo.classList.remove('pulso');
+    void nodo.offsetWidth; // reinicia la animación
+    nodo.classList.add('pulso');
+}
+
 //--- CÁLCULOS (funciones puras, sin DOM) ---//
 export const totalLinea = (p) => round2(p.cantidad * p.precioUnitario);
 
@@ -47,21 +53,10 @@ export function precioUnitario(cantidad, { precioDetal, precioMayor, cantidadMay
     return precioMayor > 0 && cantidadMayor > 0 && cantidad >= cantidadMayor ? precioMayor : precioDetal;
 }
 
-export const porcentajeDescuento = (base) => DESCUENTOS.find(([min]) => base > min)?.[1] ?? 0;
-
-/** Solo se guarda USD; los Bs se derivan de la tasa vigente. Los excluidos no reciben descuento. */
+/** Solo se guarda USD; los Bs se derivan de la tasa vigente. El servidor recalcula y rechaza si no cuadra. */
 export function calcularTotales(items, tasa) {
-    const suma = (lista) => round2(lista.reduce((a, p) => a + totalLinea(p), 0));
-    const subtotal = suma(items);
-    const base = suma(items.filter((p) => !p.excluidoDescuento));
-    const porcentaje = porcentajeDescuento(base);
-    const descuento = round2((base * porcentaje) / 100);
-    const total = round2(subtotal - descuento);
-    const aBs = (n) => round2(n * tasa);
-    return {
-        subtotal, porcentaje, descuento, total,
-        subtotalBs: aBs(subtotal), descuentoBs: aBs(descuento), totalBs: aBs(total),
-    };
+    const total = round2(items.reduce((a, p) => a + totalLinea(p), 0));
+    return { total, totalBs: round2(total * tasa) };
 }
 
 export const calcularVuelto = (recibido, total) => (recibido >= total ? round2(recibido - total) : 0);
@@ -118,6 +113,11 @@ function initCliente() {
         ponerValor(f.telefono, aTelefonoLocal(cli.telefono || ''));
         rellenoAuto = true;
         err.hidden = true;
+        for (const campo of [f.nombre, f.apellido, f.telefono]) {
+            campo.classList.remove('autorrelleno');
+            void campo.offsetWidth;
+            campo.classList.add('autorrelleno');
+        }
     }
 
     form.addEventListener('input', (e) => {
@@ -298,14 +298,15 @@ function initProducto() {
         if (!(pu > 0)) return error('El precio unitario debe ser mayor que cero.', precio);
         state.items.push({
             id: ++seq, idInventario: sel?.id ?? null, nombre: n, cantidad: c, precioUnitario: pu,
-            stock: sel ? sel.stock : null, excluidoDescuento: false,
+            stock: sel ? sel.stock : null,
         });
+        state.nuevoId = seq;
         renderFactura();
         form.reset(); sel = null; total.value = '—'; cerrar(); nombre.focus();
     });
 }
 
-//--- 2c. TABLA, DESCUENTOS Y TOTALES ---//
+//--- 2c. TABLA Y TOTALES ---//
 function initFactura() {
     const tbody = $('#filas');
     const dlg = $('#dlgEditar'), form = $('#formEditar'), err = $('#editarError');
@@ -318,9 +319,6 @@ function initFactura() {
         const p = state.items.find((x) => x.id === id);
         if (b.dataset.act === 'del') {
             state.items = state.items.filter((x) => x.id !== id);
-            renderFactura();
-        } else if (b.dataset.act === 'toggle') {
-            p.excluidoDescuento = !p.excluidoDescuento;
             renderFactura();
         } else {
             editId = id;
@@ -351,15 +349,10 @@ function filaProducto(p) {
     const t = totalLinea(p);
     const set = (k, v) => { tr.querySelector(`[data-f=${k}]`).textContent = v; };
     tr.dataset.id = p.id;
-    tr.classList.toggle('excluida', p.excluidoDescuento);
+    tr.classList.toggle('fila-nueva', p.id === state.nuevoId);
     set('cant', p.cantidad); set('nombre', p.nombre); set('pu', usd(p.precioUnitario));
     set('total', usd(t)); set('totalBs', bs(round2(t * state.tasa)));
-    tr.querySelector('[data-f=bDesc]').hidden = !p.excluidoDescuento;
     tr.querySelector('[data-f=bStock]').hidden = !(p.stock != null && p.cantidad > p.stock);
-    const btn = tr.querySelector('[data-act=toggle]');
-    const txt = p.excluidoDescuento ? 'Volver a incluir en el descuento' : 'Excluir del descuento';
-    btn.title = txt; btn.setAttribute('aria-label', txt); btn.setAttribute('aria-pressed', p.excluidoDescuento);
-    btn.firstElementChild.className = `fa-solid ${p.excluidoDescuento ? 'fa-rotate-left' : 'fa-tag'}`;
     return tr;
 }
 
@@ -368,15 +361,12 @@ function renderFactura() {
     const t = calcularTotales(state.items, state.tasa);
     state.idFactura = null; // la factura cambió: el próximo envío usa un id nuevo
     $('#filas').replaceChildren(...state.items.map(filaProducto));
+    state.nuevoId = null;
     $('#tablaWrap').hidden = !state.items.length;
     $('#vacio').hidden = !!state.items.length;
-    $('#cuenta').textContent = state.items.length;
-    $('#rSub').hidden = $('#rDesc').hidden = !t.porcentaje;
-    $('#tSub').textContent = usd(t.subtotal);
-    $('#tDescLabel').textContent = `Descuento (${t.porcentaje}%)`;
-    $('#tDesc').textContent = '−' + usd(t.descuento);
-    $('#tTotal').textContent = usd(t.total);
-    $('#tTotalBs').textContent = bs(t.totalBs);
+    pulso($('#cuenta'), String(state.items.length));
+    pulso($('#tTotal'), usd(t.total));
+    pulso($('#tTotalBs'), bs(t.totalBs));
     $('#btnProcesar').disabled = !state.items.length;
 }
 
@@ -560,13 +550,13 @@ async function finalizarCompra() {
         id_factura: state.idFactura,
         nombre: c.nombre, apellido: c.apellido, cedula: soloDigitos(c.cedula), telefono, vendedor: c.vendedor,
         tasa_cambio: state.tasa,
-        subtotal_usd: t.subtotal, descuento_usd: t.descuento, total_usd: t.total,
-        subtotal_bs: t.subtotalBs, descuento_bs: t.descuentoBs, total_bs: t.totalBs,
+        subtotal_usd: t.total, total_usd: t.total, // sin descuentos: subtotal = total (la BD conserva ambas columnas)
+        subtotal_bs: t.totalBs, total_bs: t.totalBs,
         ...lectura.pago,
         comprobante: lectura.pago.metodo_pago === 'PM' ? state.comprobante : null,
         productos: state.items.map((p) => ({
             nombre: p.nombre, cantidad: p.cantidad, precioUnitario: p.precioUnitario,
-            precioTotal: totalLinea(p), excluidoDescuento: p.excluidoDescuento, idInventario: p.idInventario,
+            precioTotal: totalLinea(p), idInventario: p.idInventario,
         })),
     };
 
