@@ -43,9 +43,145 @@
                             required />
                     </label>
                 </div>
+
+                <label class="form-field" style="grid-column:1/-1">
+                    Vendedor
+                    <input type="text" id="nameVendedor" placeholder="Ingresa tu nombre" oninput="formatText(this)" />
+                </label>
+
+                <div class="modal-actions"
+                    style="grid-column:1/-1; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:4px;">
+                    <a href="../../index.html" class="btn-secondary"
+                        style="display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-arrow-left"></i> Volver
+                    </a>
+                    <button type="button" id="btnOmitirCliente" class="btn-secondary" onclick="omitirDatosCliente()">
+                        Omitir por ahora
+                    </button>
+                    <button id="btnCerrarModal" class="btn-primary" onclick="dataClientSave()">
+                        <i class="fas fa-check"></i> Guardar datos
+                    </button>
+                </div>
             </div>
         </div>
     </dialog>
+
+    <!-- ── Contenido principal ── -->
+  <main>
+    <div class="main-card">
+
+      <!-- Header -->
+      <header class="invoice-header">
+        <div>
+          <h1>Facturación</h1>
+          <div id="data-client" class="client-summary"></div>
+        </div>
+        <div class="exchange-box">
+          <label class="form-field">
+            Tasa del día (Bs/$)
+            <input type="number" id="tasa-input" placeholder="36.50" step="0.01"/>
+          </label>
+        </div>
+      </header>
+
+      <!-- Sección: agregar producto -->
+      <section id="seccionProducto" class="invoice-section">
+        <h2><i class="fas fa-plus-circle" style="color:var(--rose);margin-right:6px"></i>Agregar producto</h2>
+
+        <div class="form-billing-grid">
+          <label class="form-field">
+            Cantidad
+            <input type="number" id="cantProduct" placeholder="Ej: 2" min="1"/>
+          </label>
+
+          <label class="form-field">
+            Producto
+            <!-- Contenedor necesario para el autocompletado y el clic externo -->
+            <div class="autocomplete-container" style="position: relative; width: 100%;">
+              <input type="text" id="nameProduct" 
+                    placeholder="Buscar producto o escribir a mano..." 
+                    autocomplete="off"/>
+              <ul id="sugerencias-lista" class="autocomplete-lista" style="display: none;"></ul>
+            </div>
+          </label>
+
+          <label class="form-field">
+            Precio UND ($)
+            <input type="number" id="prcUndProduct" placeholder="0.00" step="0.01" min="0"/>
+          </label>
+
+          <label class="form-field">
+            Precio Total ($)
+            <input type="text" id="prcTotalProduct" readonly placeholder="Calculado automáticamente"/>
+          </label>
+
+          <div class="form-actions-row" style="grid-column:1/-1; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" class="btn-primary" onclick="acceptProductData()">
+              <i class="fas fa-plus"></i> Agregar producto
+            </button>
+            <a href="../../index.html" class="btn-secondary" style="display:inline-flex;align-items:center;gap:6px;">
+              <i class="fas fa-arrow-left"></i> Volver
+            </a>
+          </div>
+        </div>
+      </section>
+      <!-- Sección: detalle de factura -->
+      <section id="seccionFactura" class="invoice-section">
+        <h2><i class="fas fa-receipt" style="color:var(--rose);margin-right:6px"></i>Detalle de factura</h2>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Cant.</th>
+                <th>Producto</th>
+                <th class="num">UND $</th>
+                <th class="num">UND Bs</th>
+                <th class="num">Total $</th>
+                <th class="num">Total Bs</th>
+                <th class="text-center">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="tablaProductos">
+              <tr>
+                <td colspan="7">
+                  <div class="table-empty-state">
+                    <i class="fas fa-box-open"></i>
+                    Agrega productos para ver el detalle de la factura
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="totalesTabla" class="invoice-totals"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ── Modal de estado (procesar compra) ── -->
+  <div id="statusModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div id="modalLoading" class="modal-status-section">
+        <div class="spinner"></div>
+        <p>Procesando factura…</p>
+      </div>
+      <div id="modalSuccess" class="modal-status-section hidden">
+        <div class="success-checkmark"><div class="check-icon"></div></div>
+        <h3>¡Factura lista!</h3>
+        <p>Los datos se guardaron correctamente.</p>
+      </div>
+      <div id="modalError" class="modal-status-section hidden">
+        <div class="error-icon">❌</div>
+        <h3>Ocurrió un error</h3>
+        <p id="modalErrorMessage">No se pudo procesar la compra.</p>
+        <button type="button" onclick="cerrarModalError()" class="btn-cerrar-modal">Entendido</button>
+      </div>
+    </div>
+  </div>
+  
     <script src="/js/facturacion.js"></script>
     <script src="/js/utils/formateadores.js"></script>
     <script src="/js/utils/modalCliente.js"></script>
