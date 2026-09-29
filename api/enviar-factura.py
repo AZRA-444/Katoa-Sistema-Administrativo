@@ -4,7 +4,7 @@ Guarda una factura en Supabase (RPC `guardar_factura_completa`).
 
 Seguridad:
   - Exige sesión activa (cookie HttpOnly creada por /api/login) y comprueba el origen.
-  - Valida todos los campos y RECALCULA subtotal, descuento y total en el servidor;
+  - Valida todos los campos y RECALCULA el total en el servidor;
     si no coinciden con lo que envió el navegador, rechaza la factura.
   - Sube el comprobante (JPEG) al bucket `comprobantes` desde el servidor.
 """
@@ -29,8 +29,6 @@ TOLERANCIA = Decimal("0.02")  # diferencia admitida por redondeo JS vs Python
 BUCKET = "comprobantes"
 PREFIJO_JPEG = "data:image/jpeg;base64,"
 
-# [monto mínimo (exclusivo), %] de mayor a menor. Debe coincidir con DESCUENTOS en js/facturacion.js
-DESCUENTOS = ((100, 25), (50, 20), (20, 15))
 METODOS = {"PM", "PVD", "PVC", "ED", "EBS", "OTROS"}
 
 ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
@@ -84,15 +82,8 @@ def _num(d):
 
 
 def calcular_totales(lineas, tasa):
-    subtotal = sum((l["total"] for l in lineas), Decimal(0))
-    base = sum((l["total"] for l in lineas if not l["excluido"]), Decimal(0))
-    porcentaje = next((p for minimo, p in DESCUENTOS if base > minimo), 0)
-    descuento = _r2(base * Decimal(porcentaje) / Decimal(100))
-    total = subtotal - descuento
-    return {
-        "subtotal": subtotal, "porcentaje": porcentaje, "descuento": descuento, "total": total,
-        "subtotal_bs": _r2(subtotal * tasa), "total_bs": _r2(total * tasa),
-    }
+    total = sum((l["total"] for l in lineas), Decimal(0))
+    return {"total": total, "total_bs": _r2(total * tasa)}
 
 
 def _decodificar_comprobante(valor):
@@ -147,7 +138,6 @@ def validar(p):
             "cantidad": cantidad,
             "unitario": unitario,
             "total": _r2(cantidad * unitario),
-            "excluido": it.get("excluidoDescuento") is True,
             "id_inventario": id_inv,
         })
 
@@ -187,8 +177,8 @@ def validar(p):
     factura = {
         "id_factura": id_factura, "nombre": nombre, "apellido": apellido, "cedula": cedula,
         "telefono": telefono, "vendedor": vendedor,
-        "subtotal_usd": float(t["subtotal"]), "total_usd": float(t["total"]),
-        "subtotal_bs": float(t["subtotal_bs"]), "total_bs": float(t["total_bs"]),
+        "subtotal_usd": float(t["total"]), "total_usd": float(t["total"]),  # sin descuentos: subtotal = total
+        "subtotal_bs": float(t["total_bs"]), "total_bs": float(t["total_bs"]),
         "tasa_cambio": float(tasa),
         "metodo_pago": metodo, "referencia": referencia, "banco": banco,
         "comprobante_path": None, "observaciones": observaciones, "pagos_combinados": None,
