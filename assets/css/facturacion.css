@@ -596,6 +596,62 @@ dialog.estado {
   color: var(--danger);
 }
 
+/* Pago combinado: varias líneas de pago y cuánto falta por cubrir */
+.mixto {
+  display: grid;
+  gap: 12px;
+}
+
+.pago-restante[data-estado="falta"] strong { color: #B45309; }
+.pago-restante[data-estado="sobra"] strong { color: #B42318; }
+.pago-restante[data-estado="ok"] strong { color: #2F5D3A; }
+
+.mx-lineas {
+  display: grid;
+  gap: 12px;
+}
+
+.pago-linea {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.pago-linea-cab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pago-linea-cab select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.btn-mini {
+  padding: 6px 10px;
+}
+
+.pago-linea-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pago-linea-pie small {
+  color: var(--muted, #5B6678);
+}
+
 /* Pantalla final: aviso de WhatsApp y acciones (imprimir / reintentar / nueva) */
 .wa-aviso {
   width: 100%;

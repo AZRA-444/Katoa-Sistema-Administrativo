@@ -36,6 +36,7 @@ TINTA = colors.HexColor("#1E293B")
 GRIS = colors.HexColor("#5B6678")
 
 METODOS = {
+    "MIXTO": "Pago combinado",
     "PM": "Pago móvil",
     "PVD": "Punto de venta (débito)",
     "PVC": "Punto de venta (crédito)",
@@ -176,7 +177,11 @@ def generar_pdf(factura, detalles):
     # ── Totales ──
     subtotal = float(factura["subtotal_usd"])
     cobrado = float(factura["total_usd"])
-    con_descuento = abs(subtotal - cobrado) > 0.004
+    mixto = factura["metodo_pago"] == "MIXTO"
+    if mixto:
+        cobrado = subtotal  # los abonos de la tabla suman el total de lista; el ahorro va en las observaciones
+    # En el pago combinado el descuento aplica solo a una parte: va explicado en las observaciones
+    con_descuento = not mixto and abs(subtotal - cobrado) > 0.004
     tasa = float(factura["tasa_cambio"])
     lineas = []
     if con_descuento:
@@ -199,22 +204,56 @@ def generar_pdf(factura, detalles):
 
     # ── Pago ──
     metodo = METODOS.get(factura["metodo_pago"], factura["metodo_pago"])
-    pago = [[Paragraph("MÉTODO DE PAGO", s["etq"]), Paragraph(_e(metodo), s["base"])]]
+    pagos = factura.get("pagos_combinados") if mixto else None
+    if pagos:
+        historia += [Paragraph("FORMA DE PAGO · COMBINADO", s["etq"]), Spacer(1, 4)]
+        filas_p = [[
+            Paragraph("MÉTODO", s["th"]), Paragraph("DETALLE", s["th"]),
+            Paragraph("MONTO", s["thd"]), Paragraph("ABONO ($)", s["thd"]),
+        ]]
+        for x in pagos:
+            partes = []
+            if x.get("banco") not in (None, "", "N/A"):
+                partes.append(f"Banco: {x['banco']}")
+            if x.get("referencia") not in (None, "", "N/A"):
+                partes.append(f"Ref.: {x['referencia']}")
+            if x.get("observaciones"):
+                partes.append(x["observaciones"])
+            simbolo = "$" if x.get("moneda") == "USD" else "Bs"
+            filas_p.append([
+                Paragraph(_e(METODOS.get(x["metodo"], x["metodo"])), s["base"]),
+                Paragraph(_e(" · ".join(partes) or "—"), s["peq"]),
+                Paragraph(f"{simbolo} {_m(x['monto'])}", s["der"]),
+                Paragraph(_m(x["abono_usd"]), s["der"]),
+            ])
+        tabla_pagos = Table(filas_p, colWidths=[ancho * 0.27, ancho * 0.37, ancho * 0.19, ancho * 0.17], repeatRows=1)
+        tabla_pagos.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), TERRACOTA),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINEA),
+        ]))
+        historia += [tabla_pagos, Spacer(1, 10)]
+        pago = []
+    else:
+        pago = [[Paragraph("MÉTODO DE PAGO", s["etq"]), Paragraph(_e(metodo), s["base"])]]
     if factura.get("banco") not in (None, "", "N/A"):
         pago.append([Paragraph("BANCO", s["etq"]), Paragraph(_e(factura["banco"]), s["base"])])
     if factura.get("referencia") not in (None, "", "N/A"):
         pago.append([Paragraph("REFERENCIA", s["etq"]), Paragraph(_e(factura["referencia"]), s["base"])])
     if factura.get("observaciones"):
         pago.append([Paragraph("OBSERVACIONES", s["etq"]), Paragraph(_e(factura["observaciones"]), s["base"])])
-    bloque_pago = Table(pago, colWidths=[ancho * 0.22, ancho * 0.78])
-    bloque_pago.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.6, LINEA),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-    ]))
-    historia.append(bloque_pago)
+    if pago:
+        bloque_pago = Table(pago, colWidths=[ancho * 0.22, ancho * 0.78])
+        bloque_pago.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.6, LINEA),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        historia.append(bloque_pago)
 
     doc.build(historia, onFirstPage=_pie, onLaterPages=_pie)
     return buf.getvalue()
