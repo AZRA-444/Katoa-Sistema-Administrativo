@@ -169,7 +169,6 @@ function pintarLista() {
     $('#vacioInv').hidden = filas.length > 0;
     $('#vacioTxt').textContent = filtrado ? 'No hay productos con estos filtros. Prueba a quitar alguno.'
         : state.admin ? 'Aún no hay productos. Registra el primero con «Nuevo producto».' : 'Aún no hay productos registrados.';
-    $('#fLimpiar').hidden = !filtrado;
     nota('#notaInv', state.truncado, filas.length);
 
     const agotados = state.items.filter((p) => Number(p.cantidad) <= 0).length;
@@ -179,12 +178,6 @@ function pintarLista() {
     $('#resumenInv').textContent = filas.length ? partes.join(' · ') : '';
 }
 
-function limpiarFiltros() {
-    $('#fBuscar').value = ''; $('#fSeccion').value = '';
-    fijarAlerta('');
-    cargarLista();
-    $('#fBuscar').focus();
-}
 function fijarAlerta(v) {
     state.alerta = v;
     for (const b of $$('.filtro')) b.setAttribute('aria-pressed', String(b.dataset.alerta === v));
@@ -511,7 +504,6 @@ async function init() {
     $('#fBuscar').addEventListener('input', () => { clearTimeout(t); t = setTimeout(cargarLista, 300); });
     $('#fSeccion').addEventListener('change', cargarLista);
     for (const b of $$('.filtro')) b.addEventListener('click', () => { fijarAlerta(b.dataset.alerta); cargarLista(); });
-    $('#fLimpiar').addEventListener('click', limpiarFiltros);
     for (const id of ['#kSeccion', '#kTipo', '#kDesde', '#kHasta']) $(id).addEventListener('change', cargarKardex);
     $('#kDesde').addEventListener('change', () => { $('#kHasta').min = $('#kDesde').value; });
     $('#kHasta').addEventListener('change', () => { $('#kDesde').max = $('#kHasta').value; });
