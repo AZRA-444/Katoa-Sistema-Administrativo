@@ -184,7 +184,11 @@ def _kardex(qs, u):
             if not FECHA_RE.match(g(clave)):
                 raise c.ErrorPeticion(400, "Fecha inválida.")
             params.append(("creado_en", f"{op}.{g(clave)}T{hora}-04:00"))   # hora de Venezuela (UTC-4)
-    return _leer("inv_kardex", params)
+    filas = _leer("inv_kardex", params)
+    if not c.es_admin(u):          # los costos solo los ve el administrador
+        for f in filas:
+            f["costo_unitario"] = None
+    return filas
 
 
 # ── Escrituras (solo admin) ─────────────────────────────────────────────────

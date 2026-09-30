@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Inventario — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/inventario.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Inventario</h1>
+        <button type="button" class="btn btn-ghost" id="btnLlegada" data-admin-only><i class="fas fa-truck-ramp-box"></i> Registrar llegada</button>
+        <button type="button" class="btn btn-primary" id="btnNuevo" data-admin-only><i class="fas fa-plus"></i> Nuevo producto</button>
+    </header>
+
+    <main class="inv-wrap" data-encargado-access>
+        <nav class="tabs" role="tablist" aria-label="Vista">
+            <button type="button" class="tab" role="tab" id="tabExist" aria-selected="true" aria-controls="panExist">Existencias</button>
+            <button type="button" class="tab" role="tab" id="tabKardex" aria-selected="false" aria-controls="panKardex">Kardex</button>
+        </nav>
+
+        <section class="panel" id="panExist" role="tabpanel" aria-labelledby="tabExist">
+            <div class="tools">
+                <div class="field grow"><label for="fBuscar">Buscar</label>
+                    <input id="fBuscar" type="search" placeholder="Nombre, marca, color, talla o código de barras" autocomplete="off" /></div>
+                <div class="field"><label for="fSeccion">Sección</label>
+                    <select id="fSeccion"><option value="">Todas</option></select></div>
+                <div class="field"><label for="fAlerta">Nivel de stock</label>
+                    <select id="fAlerta"><option value="">Todos</option><option value="bajo">En mínimo o menos</option><option value="alto">En máximo o más</option></select></div>
+            </div>
+            <h2>Existencias <span class="count" id="contInv">0</span></h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Producto</th><th>Código</th><th class="n">Stock</th><th>Precios</th><th class="n" data-admin-only>Costo</th><th class="c">Acciones</th></tr></thead>
+                    <tbody id="filasInv"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="vacioInv" hidden><i class="fas fa-box-open"></i><p>No hay productos con estos filtros. Registra uno con «Nuevo producto».</p></div>
+        </section>
+
+        <section class="panel" id="panKardex" role="tabpanel" aria-labelledby="tabKardex" hidden>
+            <div class="tools">
+                <div class="field"><label for="kTipo">Movimiento</label>
+                    <select id="kTipo"><option value="">Todos</option></select></div>
+                <div class="field"><label for="kDesde">Desde</label><input id="kDesde" type="date" /></div>
+                <div class="field"><label for="kHasta">Hasta</label><input id="kHasta" type="date" /></div>
+                <button type="button" class="btn btn-ghost" id="kQuitar" hidden></button>
+            </div>
+            <h2>Kardex <span class="count" id="contK">0</span></h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Fecha</th><th>Producto</th><th>Movimiento</th><th class="n">Cantidad</th><th class="n">Saldo</th><th class="n">Costo</th><th>Usuario</th><th>Detalle</th></tr></thead>
+                    <tbody id="filasK"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="vacioK" hidden><i class="fas fa-clock-rotate-left"></i><p>Sin movimientos para estos filtros.</p></div>
+        </section>
+    </main>
+
+    <p id="aviso" class="aviso" role="status" hidden></p>
+    <datalist id="dlVariantes"></datalist>
+
+    <dialog class="dlg" id="dlgProducto" aria-labelledby="hProd">
+        <form id="formProducto" novalidate>
+            <h2 id="hProd">Nuevo producto</h2>
+            <div class="grid-campos">
+                <div class="field"><label for="pNom">Nombre</label><input id="pNom" name="nombre" maxlength="120" required /></div>
+                <div class="field"><label for="pMarca">Marca</label><input id="pMarca" name="marca" maxlength="60" /></div>
+                <div class="field"><label for="pSec">Sección</label><select id="pSec" name="seccion_id" required></select></div>
+            </div>
+            <div id="variantes" class="variantes"></div>
+            <button type="button" class="btn btn-ghost" id="btnOtraVar"><i class="fas fa-plus"></i> Agregar otra variante</button>
+            <p class="form-error" id="errProd" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Guardar producto</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg" id="dlgLlegada" aria-labelledby="hLleg">
+        <form id="formLlegada" novalidate>
+            <h2 id="hLleg">Registrar llegada</h2>
+            <div class="grid-campos">
+                <div class="field"><label for="lProv">Proveedor</label><select id="lProv"><option value="">Sin proveedor</option></select></div>
+                <div class="field"><label for="lNuevoProv">Proveedor nuevo</label><input id="lNuevoProv" maxlength="120" placeholder="Si no está en la lista" /></div>
+                <div class="field"><label for="lFact">Número de factura</label><input id="lFact" maxlength="40" /></div>
+            </div>
+            <div id="lineas" class="variantes"></div>
+            <button type="button" class="btn btn-ghost" id="btnOtraLinea"><i class="fas fa-plus"></i> Agregar línea</button>
+            <p class="form-error" id="errLleg" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Registrar llegada</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg dlg-sm" id="dlgMov" aria-labelledby="hMov">
+        <form id="formMov" novalidate>
+            <h2 id="hMov">Salida</h2>
+            <p class="muted" id="movProducto"></p>
+            <div class="field" id="filaSentido"><label for="mSentido">Tipo de ajuste</label>
+                <select id="mSentido"><option value="salida">Restar unidades</option><option value="entrada">Sumar unidades</option></select></div>
+            <div class="field"><label for="mCant">Cantidad</label><input id="mCant" type="number" min="1" step="1" inputmode="numeric" required /></div>
+            <div class="field"><label for="mMotivo">Motivo</label><select id="mMotivo" required></select></div>
+            <div class="field"><label for="mDetalle">Detalle (opcional)</label><input id="mDetalle" maxlength="200" /></div>
+            <p class="form-error" id="errMov" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary" id="btnMov">Registrar salida</button></div>
+        </form>
+    </dialog>
+</body>
+
+</html>

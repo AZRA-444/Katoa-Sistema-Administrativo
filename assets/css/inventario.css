@@ -1,0 +1,126 @@
+/* Inventario — Katoa · reutiliza los tokens de global.css y los componentes de facturacion.css */
+.inv-wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-inline: clamp(12px, 3vw, 32px);
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 16px;
+}
+
+.topbar .btn { min-height: 44px; }
+
+@media (max-width: 720px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar h1 { flex-basis: calc(100% - 60px); }
+}
+
+/* Pestañas */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+
+.tab {
+  min-height: 46px;
+  padding: .6rem 1.2rem;
+  font: 600 .95rem var(--font-body);
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--terracota-700); }
+.tab[aria-selected="true"] { color: var(--terracota-800); border-bottom-color: var(--terracota-700); }
+.tab:focus-visible { outline: 3px solid rgba(190, 110, 65, .35); outline-offset: -3px; }
+
+/* Filtros */
+.tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 18px; }
+.tools .field { flex: 1 1 170px; }
+.tools .field.grow { flex: 2 1 280px; }
+
+/* select y textarea comparten el aspecto de los inputs de facturacion.css */
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: .65rem .9rem;
+  font: 400 1rem var(--font-body);
+  color: var(--ink);
+  background: var(--crema-soft);
+  border: 1px solid var(--malva);
+  border-radius: 10px;
+}
+
+.field select:hover { border-color: var(--terracota); }
+.field select:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--terracota-700);
+  box-shadow: 0 0 0 3px rgba(190, 110, 65, .25);
+}
+
+.field input[type="date"] { min-width: 0; }
+.form-error:not([hidden]) { display: block; }
+
+/* Tabla */
+.prod-nombre { font-weight: 600; }
+.precios div + div { margin-top: 2px; font-size: .82rem; color: var(--muted); }
+.badge.alto { color: #4D5A2B; background: var(--salvia-soft); }
+.entra { color: #2F6B3B; font-weight: 600; }
+.sale { color: var(--danger); font-weight: 600; }
+.saldo-flecha { color: var(--muted); font-size: .85rem; }
+.detalle-k { max-width: 240px; font-size: .85rem; color: var(--muted); }
+
+/* Aviso de éxito */
+.aviso {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: min(92vw, 460px);
+  padding: .8rem 1.2rem;
+  font-weight: 500;
+  color: #fff;
+  background: var(--ink);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+}
+
+/* Diálogos */
+.dlg {
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+}
+
+.dlg-sm { width: min(440px, calc(100vw - 24px)); }
+.dlg::backdrop { background: rgba(30, 41, 59, .45); }
+.dlg form { display: grid; gap: 14px; padding: clamp(16px, 3vw, 26px); }
+.dlg h2 { font-size: 1.7rem; line-height: 1.1; }
+.dlg-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+
+.grid-campos,
+.vrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+
+.variantes { display: grid; gap: 12px; }
+
+.vrow {
+  min-width: 0;
+  padding: 14px;
+  background: var(--crema-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.vrow legend { padding-inline: 6px; font: 600 .9rem var(--font-body); color: var(--terracota-800); }
+.vrow .field input,
+.vrow .field select { background: #fff; }
+.vrow .check { display: flex; align-items: center; gap: 8px; min-height: 46px; font-size: .9rem; }
+.vrow .check input { width: 20px; height: 20px; min-height: 0; accent-color: var(--terracota-700); }
+.vrow .quitar { align-self: end; }

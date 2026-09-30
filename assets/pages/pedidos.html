@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Facturación — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/pedidos.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Facturación</h1>
+        <span id="chipCliente" class="chip" data-ok="false">Cliente pendiente</span>
+    </header>
+
+    <main class="layout">
+        <div class="stack">
+            <!-- Agregar producto -->
+            <section id="seccionProducto" class="panel" aria-labelledby="hProducto">
+                <h2 id="hProducto">Agregar producto</h2>
+                <form id="formProducto" class="grid-producto" novalidate>
+                    <div class="field combo f-nombre">
+                        <label for="pNombre">Producto</label>
+                        <input id="pNombre" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+                            aria-controls="sugerencias" autocomplete="off"
+                            placeholder="Buscar en inventario o escribir a mano" />
+                        <ul id="sugerencias" class="sugerencias" role="listbox" aria-label="Sugerencias" hidden></ul>
+                    </div>
+                    <div class="field">
+                        <label for="pCant">Cantidad</label>
+                        <input id="pCant" type="number" min="1" step="1" inputmode="numeric" placeholder="1" />
+                    </div>
+                    <div class="field">
+                        <label for="pPrecio">Precio und. ($)</label>
+                        <input id="pPrecio" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+                    </div>
+                    <div class="field">
+                        <label for="pTotal">Total</label>
+                        <output id="pTotal" for="pCant pPrecio">—</output>
+                    </div>
+                    <button class="btn btn-primary" type="submit"><i class="fas fa-plus"></i> Agregar</button>
+                    <p id="productoError" class="form-error" role="alert" hidden></p>
+                </form>
+            </section>
+
+            <!-- Detalle -->
+            <section id="seccionFactura" class="panel" aria-labelledby="hDetalle">
+                <h2 id="hDetalle">Detalle de factura <span id="cuenta" class="count">0</span></h2>
+                <div id="vacio" class="empty">
+                    <i class="fas fa-box-open"></i>
+                    <p>Aún no hay productos. Busca uno arriba para empezar.</p>
+                </div>
+                <div id="tablaWrap" class="table-wrap" hidden>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="c">Cant.</th>
+                                <th>Producto</th>
+                                <th class="n">P. und.</th>
+                                <th class="n">Total</th>
+                                <th class="n">Total Bs</th>
+                                <th class="c">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="filas"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Pago -->
+            <section id="seccionPago" class="panel" aria-labelledby="hPago" hidden>
+                <h2 id="hPago">Método de pago</h2>
+                <div class="field">
+                    <label for="metodoPago">Método</label>
+                    <select id="metodoPago">
+                        <option value="PM">Pago móvil</option>
+                        <option value="PVD">Punto de venta (débito)</option>
+                        <option value="PVC">Punto de venta (crédito)</option>
+                        <option value="ED">Efectivo en divisas ($)</option>
+                        <option value="ZELLE">Zelle</option>
+                        <option value="BINANCE">Binance (USDT)</option>
+                        <option value="EBS">Efectivo en bolívares (Bs)</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                </div>
+                <label id="filaDescuento" class="switch" hidden>
+                    <input id="descUsdt" type="checkbox" role="switch" checked />
+                    <span class="switch-pista" aria-hidden="true"></span>
+                    <span class="switch-texto">
+                        <strong>Aplicar descuento por pago en dólares</strong>
+                        <small>Convierte con la tasa USDT. Desactivado: se cobra el precio de lista.</small>
+                    </span>
+                </label>
+                <div id="paymentDetails" class="grid-2 pago-detalle"></div>
+                <p id="pagoError" class="form-error" role="alert" hidden></p>
+                <div class="dlg-actions pago-acciones">
+                    <button id="btnVolver" class="btn btn-ghost" type="button"><i class="fas fa-arrow-left"></i> Volver a productos</button>
+                    <button id="btnFinalizar" class="btn btn-primary" type="button"><i class="fas fa-check"></i> Finalizar compra</button>
+                </div>
+            </section>
+        </div>
+
+        <!-- Resumen tipo recibo -->
+        <aside class="panel summary" aria-label="Resumen de la factura">
+            <div class="block">
+                <div class="block-head">
+                    <h2>Cliente</h2>
+                    <button type="button" class="link" data-open-cliente><i class="fas fa-pen"></i> <span
+                            id="txtEditar">Completar</span></button>
+                </div>
+                <p id="clienteVacio" class="muted">Sin datos del cliente.</p>
+                <dl id="clienteDatos" class="kv" hidden>
+                    <div>
+                        <dt>Nombre</dt>
+                        <dd id="cNombre"></dd>
+                    </div>
+                    <div>
+                        <dt>C.I.</dt>
+                        <dd id="cCedula"></dd>
+                    </div>
+                    <div>
+                        <dt>Teléfono</dt>
+                        <dd id="cTelefono"></dd>
+                    </div>
+                    <div>
+                        <dt>Vendedor</dt>
+                        <dd id="cVendedor"></dd>
+                    </div>
+                </dl>
+            </div>
+
+            <div class="block field">
+                <label for="tasa">Tasa del día (Bs/$)</label>
+                <input id="tasa" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+            </div>
+
+            <div class="block field">
+                <label for="tasaUsdt">Tasa USDT (Bs/USDT)</label>
+                <input id="tasaUsdt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+            </div>
+
+            <dl class="totals">
+                <div class="grand">
+                    <dt id="tEtiqueta">Total</dt>
+                    <dd><strong id="tTotal">$ 0,00</strong><span id="tTotalBs">Bs 0,00</span></dd>
+                </div>
+            </dl>
+
+            <button id="btnProcesar" class="btn btn-primary block-btn" type="button" disabled>
+                <i class="fas fa-receipt"></i> Procesar compra
+            </button>
+        </aside>
+    </main>
+
+    <!-- Datos del cliente -->
+    <dialog id="dlgCliente" aria-labelledby="tCliente">
+        <form id="formCliente" class="dlg-body" novalidate>
+            <h2 id="tCliente">Datos del cliente</h2>
+            <div class="grid-2">
+                <div class="field"><label for="cNombreIn">Nombre</label>
+                    <input id="cNombreIn" name="nombre" data-format="text" autocomplete="given-name"
+                        placeholder="María" />
+                </div>
+                <div class="field"><label for="cApellidoIn">Apellido</label>
+                    <input id="cApellidoIn" name="apellido" data-format="text" autocomplete="family-name"
+                        placeholder="Pérez" />
+                </div>
+                <div class="field"><label for="cCedulaIn">Cédula de identidad</label>
+                    <input id="cCedulaIn" name="cedula" data-format="doc" inputmode="numeric" autocomplete="off"
+                        placeholder="12.345.678" />
+                </div>
+
+                <div class="field"><label for="cTelefonoIn">Teléfono</label>
+                    <input id="cTelefonoIn" name="telefono" data-format="phone" inputmode="tel" autocomplete="tel"
+                        placeholder="0412-345-6789" />
+                </div>
+                <div class="field span"><label for="cVendedorIn">Vendedor</label>
+                    <input id="cVendedorIn" name="vendedor" data-format="text" placeholder="Tu nombre" />
+                </div>
+            </div>
+            <p id="clienteError" class="form-error" role="alert" hidden></p>
+            <div class="dlg-actions">
+                <a class="btn btn-ghost" href="../../index.html">Volver al inicio</a>
+                <button class="btn btn-primary" type="submit"><i class="fas fa-check"></i> Guardar datos</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Editar producto -->
+    <dialog id="dlgEditar" aria-labelledby="tEditar">
+        <form id="formEditar" class="dlg-body" novalidate>
+            <h2 id="tEditar">Editar producto</h2>
+            <div class="field"><label for="eCant">Cantidad</label>
+                <input id="eCant" name="cant" type="number" min="1" step="1" inputmode="numeric" />
+            </div>
+            <div class="field"><label for="eNombre">Producto</label>
+                <input id="eNombre" name="nombre" type="text" />
+            </div>
+            <div class="field"><label for="ePrecio">Precio unitario ($)</label>
+                <input id="ePrecio" name="precio" type="number" min="0" step="0.01" inputmode="decimal" />
+            </div>
+            <p id="editarError" class="form-error" role="alert" hidden></p>
+            <div class="dlg-actions">
+                <button id="btnEditarCancelar" class="btn btn-ghost" type="button">Cancelar</button>
+                <button class="btn btn-primary" type="submit">Guardar cambios</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Estado de la compra -->
+    <dialog id="dlgEstado" class="estado" aria-live="polite" aria-labelledby="tEstado">
+        <div data-estado="cargando" class="dlg-body center">
+            <div class="spinner"></div>
+            <p id="tEstado">Procesando factura…</p>
+        </div>
+        <div data-estado="exito" class="dlg-body center" hidden><i class="fas fa-circle-check ok"></i>
+            <h2>Factura lista</h2>
+            <p class="muted">Los datos se guardaron correctamente.</p>
+            <p id="exitoWa" class="wa-aviso" data-tipo="ok"></p>
+            <div class="acciones-exito">
+                <button id="btnImprimir" class="btn btn-primary" type="button"><i class="fas fa-print"></i> Imprimir nota de entrega (carta)</button>
+                <button id="btnReenviarWa" class="btn btn-ghost" type="button" hidden><i class="fab fa-whatsapp"></i> Reintentar por WhatsApp</button>
+                <button id="btnNuevaFactura" class="btn btn-ghost" type="button"><i class="fas fa-plus"></i> Nueva factura</button>
+            </div>
+        </div>
+        <div data-estado="error" class="dlg-body center" hidden>
+            <i class="fas fa-circle-exclamation bad"></i>
+            <h2>No se pudo procesar</h2>
+            <p id="estadoMsg" class="muted"></p>
+            <button id="btnEstadoCerrar" class="btn btn-primary" type="button">Entendido</button>
+        </div>
+    </dialog>
+
+    <template id="tplFila">
+        <tr>
+            <td class="c" data-f="cant"></td>
+            <td>
+                <span data-f="nombre"></span>
+                <span class="badge warn" data-f="bStock" hidden>Excede el stock</span>
+            </td>
+            <td class="n" data-f="pu"></td>
+            <td class="n" data-f="total"></td>
+            <td class="n" data-f="totalBs"></td>
+            <td>
+                <div class="acts">
+                    <button type="button" data-act="edit" title="Editar producto" aria-label="Editar producto"><i
+                            class="fa-solid fa-pen"></i></button>
+                    <button type="button" data-act="del" class="danger" title="Eliminar producto"
+                        aria-label="Eliminar producto"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </td>
+        </tr>
+    </template>
+</body>
+
+</html>
