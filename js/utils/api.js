@@ -52,7 +52,7 @@ export async function obtenerTasaUsdt() {
 }
 
 //--- INVENTARIO ---//
-/** GET /api/inventario?q= → [{id,nombre,color,calibre,cantidad,precio_detal,precio_mayor,cantidad_mayor}] */
+/** GET /api/inventario?q= → [{id,nombre,marca,color,talla,cantidad,precio_detal,precio_mayor,precio_gran_mayor,cantidad_mayor,cantidad_gran_mayor}] */
 export async function buscarProductos(q, signal) {
     try {
         const r = await request(`${ENDPOINTS.inventario}?q=${encodeURIComponent(q)}`, { signal });
