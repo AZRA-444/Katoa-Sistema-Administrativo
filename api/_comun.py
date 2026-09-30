@@ -265,3 +265,14 @@ def leer_cookies(h):
     except Exception:
         return {}
     return {k: v.value for k, v in sc.items()}
+
+# ── Sesión activa (para endpoints que solo necesitan saber si hay un usuario válido) ──
+def sesion_activa(h):
+    access = leer_cookies(h).get(COOKIE_ACCESS)
+    if not access:
+        return False
+    usuario = auth_usuario(access)
+    if not usuario:
+        return False
+    perfil = obtener_perfil(usuario["id"])
+    return bool(perfil and perfil.get("activo"))

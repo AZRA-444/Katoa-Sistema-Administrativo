@@ -4,6 +4,7 @@ const ENDPOINTS = {
     inventario: '/api/inventario',
     clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
     factura: '/api/enviar-factura',
+    facturaPdf: '/api/factura-pdf', // GET ?id= → PDF carta · POST {id_factura, telefono} → reenvía por WhatsApp
     sesion: '/api/sesion',
     tasa: 'https://open.er-api.com/v6/latest/USD',
     tasaUsdt: '/api/tasa-usdt', // el servidor consulta el dólar paralelo (así el CSP no bloquea)
@@ -79,6 +80,17 @@ export const guardarCliente = (c) =>
     request(ENDPOINTS.clientes, { method: 'POST', body: JSON.stringify(c), keepalive: true }).catch(() => { });
 
 //--- FACTURA ---//
+/** URL del PDF (tamaño carta) de una factura ya guardada. Se abre en una pestaña nueva para imprimir. */
+export const urlPdfFactura = (id) => `${ENDPOINTS.facturaPdf}?id=${encodeURIComponent(id)}`;
+
+/** Reenvía el PDF por WhatsApp. Devuelve 'enviado' | 'sin_whatsapp' | 'no_disponible' | 'no_configurado'. */
+export async function reenviarWhatsapp(idFactura, telefono) {
+    const r = await request(ENDPOINTS.facturaPdf, { method: 'POST', body: JSON.stringify({ id_factura: idFactura, telefono }) });
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo reenviar la factura.');
+    return d.whatsapp;
+}
+
 /** POST /api/enviar-factura. Lanza Error con el mensaje que se muestra al usuario. */
 export async function enviarFactura(payload) {
     const r = await request(ENDPOINTS.factura, { method: 'POST', body: JSON.stringify(payload) });

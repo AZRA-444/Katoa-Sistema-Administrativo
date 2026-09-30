@@ -7,6 +7,12 @@ Seguridad:
   - Valida todos los campos y RECALCULA el total en el servidor;
     si no coinciden con lo que envió el navegador, rechaza la factura.
   - Sube el comprobante (JPEG) al bucket `comprobantes` desde el servidor.
+
+Después de guardar:
+  - Genera el PDF (tamaño carta), lo archiva en el bucket `facturas` y lo envía por WhatsApp
+    al cliente a través del bot (api/_whatsapp.py). Si algo de esto falla, la factura sigue
+    guardada y la respuesta indica el estado (`pdf`, `whatsapp`) para que el navegador
+    ofrezca imprimir o reintentar.
 """
 import base64
 import binascii
@@ -20,6 +26,8 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _whatsapp as wa  # noqa: E402
+from _factura_pdf import generar_pdf  # noqa: E402
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_COMPROBANTE = 1_500_000  # bytes, ya comprimido por el navegador
@@ -269,6 +277,22 @@ def _guardar(factura, detalles):
     _err("No se pudo guardar la factura. Intenta de nuevo o avisa al administrador.", 502)
 
 
+def _pdf_y_whatsapp(factura, detalles, enviar):
+    """Mejor esfuerzo: la factura ya está guardada, nada de esto debe hacerla fallar.
+    Devuelve (pdf_guardado: bool, estado_whatsapp: str|None)."""
+    id_factura = factura["id_factura"]
+    try:
+        if not enviar:  # reintento de una factura duplicada: solo asegurar que el PDF exista
+            return (wa.descargar_pdf(id_factura) is not None
+                    or wa.subir_pdf(id_factura, generar_pdf(factura, detalles))), None
+        pdf = generar_pdf(factura, detalles)
+        guardado = wa.subir_pdf(id_factura, pdf)
+        return guardado, wa.enviar_pdf(factura["telefono"], id_factura, pdf, factura["nombre"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[enviar-factura] pdf/whatsapp: {e!r}", file=sys.stderr)
+        return False, wa.NO_DISPONIBLE if enviar else None
+
+
 def _error(h, status, mensaje):
     c.responder(h, status, {"status": "error", "message": mensaje})
 
@@ -293,10 +317,17 @@ class handler(BaseHTTPRequestHandler):
             return _error(self, 503, MSG_NO_DISPONIBLE)
 
         if estado == "duplicada":
-            return c.responder(self, 409, {"status": "duplicada", "message": "Esta factura ya estaba registrada."})
+            pdf_ok, _ = _pdf_y_whatsapp(factura, detalles, enviar=False)  # no se reenvía por WhatsApp
+            return c.responder(self, 409, {
+                "status": "duplicada", "message": "Esta factura ya estaba registrada.", "pdf": pdf_ok,
+            })
+        pdf_ok, whatsapp = _pdf_y_whatsapp(factura, detalles, enviar=True)
         return c.responder(
             self, 200,
-            {"status": "ok", "message": "Factura guardada.", "id_factura": factura["id_factura"]},
+            {
+                "status": "ok", "message": "Factura guardada.", "id_factura": factura["id_factura"],
+                "pdf": pdf_ok, "whatsapp": whatsapp,
+            },
         )
 
     do_GET = do_PUT = do_PATCH = do_DELETE = c.metodo_no_permitido

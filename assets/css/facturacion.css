@@ -596,6 +596,35 @@ dialog.estado {
   color: var(--danger);
 }
 
+/* Pantalla final: aviso de WhatsApp y acciones (imprimir / reintentar / nueva) */
+.wa-aviso {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: .9rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #7A4A00;
+  background: #FFF6E5;
+  border: 1px solid #F0D9A8;
+  border-radius: 12px;
+}
+
+.wa-aviso[data-tipo="ok"] {
+  color: #2F5D3A;
+  background: var(--salvia-soft);
+  border-color: var(--salvia);
+}
+
+.acciones-exito {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.acciones-exito .btn[hidden] {
+  display: none;
+}
+
 .spinner {
   width: 42px;
   height: 42px;

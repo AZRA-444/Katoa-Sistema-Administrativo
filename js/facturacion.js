@@ -4,7 +4,7 @@
  * Formateadores → utils/format.js · Llamadas al servidor → utils/api.js
  * ========================================================================== */
 import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164 } from './utils/format.js';
-import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura } from './utils/api.js';
+import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura, urlPdfFactura, reenviarWhatsapp } from './utils/api.js';
 
 //--- CONSTANTES ---//
 const STORAGE = { vendedor: 'vendedorActual', tasa: 'tasaFacturacion', tasaUsdt: 'tasaUsdtFacturacion' };
@@ -32,6 +32,7 @@ const state = {
     idFactura: null,      // se conserva entre reintentos para no duplicar la factura
     nuevoId: null,        // fila recién agregada (para resaltarla una vez)
     enviando: false,
+    factura: null,        // factura ya guardada: { id, telefono, pdf, whatsapp } (pantalla final)
 };
 let seq = 0;
 
@@ -671,17 +672,59 @@ async function finalizarCompra() {
     $('#pagoError').hidden = true;
     mostrarEstado('cargando');
     try {
-        await enviarFactura(payload);
-        mostrarEstado('exito');
+        const res = await enviarFactura(payload);
         guardarCliente({ cedula: soloDigitos(c.cedula), nombre: c.nombre, apellido: c.apellido, telefono });
         state.items = []; // sin productos, el aviso de salida ya no aplica
-        setTimeout(() => location.reload(), 1800);
+        // whatsapp: null si la factura ya estaba registrada (reintento): no se sabe si llegó
+        state.factura = { id: payload.id_factura, telefono, pdf: res.pdf === true, whatsapp: res.whatsapp ?? null };
+        pintarExito();
+        mostrarEstado('exito');
     } catch (e) {
         console.error('Error en finalizarCompra:', e);
         mostrarEstado('error', e.message);
         state.enviando = false;
         $('#btnFinalizar').disabled = false;
     }
+}
+
+//--- 5. FACTURA LISTA: WhatsApp o impresión ---//
+const AVISOS_WA = {
+    enviado: ['ok', 'La factura se envió por WhatsApp al cliente.'],
+    sin_whatsapp: ['warn', 'Este número no tiene WhatsApp. Imprime la factura en formato carta.'],
+    no_disponible: ['warn', 'No se pudo enviar por WhatsApp en este momento.'],
+    no_configurado: ['warn', 'El envío por WhatsApp no está configurado.'],
+};
+// Con estos estados reintentar no sirve de nada: el cliente no tiene WhatsApp o el bot no está configurado.
+const SIN_REINTENTO = new Set(['enviado', 'sin_whatsapp', 'no_configurado']);
+
+function pintarExito() {
+    const f = state.factura;
+    const [tipo, texto] = AVISOS_WA[f.whatsapp] ?? ['warn', 'Esta factura ya estaba registrada. Puedes imprimirla o enviarla por WhatsApp.'];
+    const aviso = $('#exitoWa');
+    aviso.dataset.tipo = tipo;
+    aviso.textContent = f.pdf ? texto : `${texto} No se pudo guardar el PDF para imprimirlo.`;
+    $('#btnImprimir').hidden = !f.pdf;
+    $('#btnReenviarWa').hidden = !f.pdf || SIN_REINTENTO.has(f.whatsapp);
+}
+
+// Abre el PDF en una pestaña nueva; desde el visor se imprime (el PDF ya es tamaño carta).
+function imprimirFactura() {
+    if (state.factura?.pdf) window.open(urlPdfFactura(state.factura.id), '_blank', 'noopener');
+}
+
+async function reintentarWhatsapp() {
+    const f = state.factura;
+    const btn = $('#btnReenviarWa');
+    btn.disabled = true;
+    try {
+        f.whatsapp = await reenviarWhatsapp(f.id, f.telefono);
+    } catch (e) {
+        console.error('Error al reenviar por WhatsApp:', e);
+        f.whatsapp = 'no_disponible';
+    } finally {
+        btn.disabled = false;
+    }
+    pintarExito();
 }
 
 //--- INICIO ---//
@@ -705,6 +748,11 @@ async function init() {
     const dlgEstado = $('#dlgEstado');
     dlgEstado.addEventListener('cancel', (e) => { if (state.enviando) e.preventDefault(); });
     $('#btnEstadoCerrar').addEventListener('click', () => dlgEstado.close());
+    $('#btnImprimir').addEventListener('click', imprimirFactura);
+    $('#btnReenviarWa').addEventListener('click', reintentarWhatsapp);
+    $('#btnNuevaFactura').addEventListener('click', () => dlgEstado.close());
+    // Al cerrar la pantalla final (botón o Esc) se empieza una factura nueva en limpio.
+    dlgEstado.addEventListener('close', () => { if (state.factura) location.reload(); });
 
     document.addEventListener('click', (e) => { if (e.target.closest('[data-open-cliente]')) abrirCliente(); });
     window.addEventListener('beforeunload', (e) => {
