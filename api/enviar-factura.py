@@ -350,16 +350,19 @@ def _subir_comprobante(id_factura, datos):
     return ruta
 
 
-def _guardar(factura, detalles):
+def _guardar(factura, detalles, usuario_id):
     r = c._http.post(
-        f"{c.SUPABASE_URL}/rest/v1/rpc/guardar_factura_completa",
-        json={"p_factura": factura, "p_detalles": detalles},
+        f"{c.SUPABASE_URL}/rest/v1/rpc/guardar_factura_con_stock",
+        json={"p_factura": factura, "p_detalles": detalles, "p_usuario": usuario_id},
         headers=c._hdr_servicio(),
         timeout=c.TIMEOUT,
     )
     if r.status_code in (200, 204):
         return "ok"
     print(f"[enviar-factura] rpc {r.status_code}: {r.text[:500]}", file=sys.stderr)
+    stock = re.search(r'stock_insuficiente:([^"\\]+)', r.text)
+    if stock:
+        _err(f"Stock insuficiente: {stock.group(1).strip()}. Ajusta la cantidad e inténtalo de nuevo.", 409)
     if r.status_code == 409 or '"23505"' in r.text:
         return "duplicada"  # misma id_factura: el envío anterior sí se guardó
     _err("No se pudo guardar la factura. Intenta de nuevo o avisa al administrador.", 502)
@@ -392,13 +395,14 @@ class handler(BaseHTTPRequestHandler):
         if not c.origen_valido(self):
             return _error(self, 403, "Origen no permitido.")
         try:
-            if not _sesion_activa(self):
+            usuario = c.usuario_sesion(self)
+            if not usuario:
                 return _error(self, 401, "Sesión expirada. Inicia sesión de nuevo.")
             datos = c.leer_json(self, MAX_BODY)
             factura, detalles, comprobante = validar(datos)
             if comprobante:
                 factura["comprobante_path"] = _subir_comprobante(factura["id_factura"], comprobante)
-            estado = _guardar(factura, detalles)
+            estado = _guardar(factura, detalles, usuario["id"])
         except c.ErrorPeticion as e:
             return _error(self, e.status, e.mensaje)
         except (requests.RequestException, RuntimeError):

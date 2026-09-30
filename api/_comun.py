@@ -276,3 +276,23 @@ def sesion_activa(h):
         return False
     perfil = obtener_perfil(usuario["id"])
     return bool(perfil and perfil.get("activo"))
+# ── Usuario de la sesión con su rol (inventario y trazabilidad del kardex) ──
+NIVELES = {"personal": 1, "encargado": 2, "admin": 3, "sysadmin": 4}
+
+
+def usuario_sesion(h):
+    """{'id','nombre','rol'} del usuario con sesión válida y activo; None si no hay."""
+    access = leer_cookies(h).get(COOKIE_ACCESS)
+    if not access:
+        return None
+    u = auth_usuario(access)
+    if not u:
+        return None
+    perfil = obtener_perfil(u["id"])
+    if not (perfil and perfil.get("activo")):
+        return None
+    return {"id": u["id"], "nombre": perfil.get("nombre"), "rol": str(perfil.get("rol") or "").lower()}
+
+
+def es_admin(usuario):
+    return NIVELES.get(usuario["rol"], 0) >= NIVELES["admin"]
