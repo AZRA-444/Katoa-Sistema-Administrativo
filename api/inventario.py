@@ -3,7 +3,7 @@
 GET (cualquier sesión activa):
     ?q=texto | código de barras          -> búsqueda para facturación (sin costos)
 GET (encargado, admin, sysadmin):
-    ?modo=lista    [&seccion=&q=&alerta=bajo|alto]
+    ?modo=lista    [&seccion=&q=&alerta=bajo|alto|agotado]
     ?modo=kardex   [&variante=&tipo=&usuario=&seccion=&desde=&hasta=]
     ?modo=secciones | ?modo=proveedores
 POST (solo admin y sysadmin), JSON {"accion": ...}:
@@ -11,9 +11,12 @@ POST (solo admin y sysadmin), JSON {"accion": ...}:
 El stock solo cambia mediante funciones SQL (inv_mover): el kardex siempre queda registrado.
 """
 import json
+import math
 import os
 import re
 import sys
+from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -23,6 +26,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
 
 MAX_BODY = 64 * 1024
+LIMITE_LISTA = 200
+LIMITE_KARDEX = 300
 TIPOS = {"REGISTRO", "LLEGADA", "SALIDA_VENTA", "SALIDA_OTRO", "AJUSTE_ENTRADA",
          "AJUSTE_SALIDA", "DEVOLUCION_CLIENTE", "DEVOLUCION_PROVEEDOR"}
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -93,7 +98,7 @@ def _entero(v, nombre, minimo=1, maximo=1_000_000, obligatorio=True):
         f = float(v)
     except ValueError:
         raise c.ErrorPeticion(400, f"Valor inválido en {nombre}.") from None
-    if f != int(f) or not (minimo <= f <= maximo):
+    if not math.isfinite(f) or f != int(f) or not (minimo <= f <= maximo):
         raise c.ErrorPeticion(400, f"Valor inválido en {nombre}.")
     return int(f)
 
@@ -105,9 +110,9 @@ def _numero(v, nombre, minimo=0.01, maximo=1_000_000):
         f = float(v)
     except ValueError:
         raise c.ErrorPeticion(400, f"Valor inválido en {nombre}.") from None
-    if not (minimo <= f <= maximo) or f != f:
+    if not math.isfinite(f) or not (minimo <= f <= maximo):
         raise c.ErrorPeticion(400, f"Valor inválido en {nombre}.")
-    return round(f, 2)
+    return float(Decimal(str(f)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))   # half-up, igual que el cliente
 
 
 def _texto(v, nombre, maximo, obligatorio=True, minimo=1):
@@ -119,6 +124,16 @@ def _texto(v, nombre, maximo, obligatorio=True, minimo=1):
     if len(s) < minimo or len(s) > maximo:
         raise c.ErrorPeticion(400, f"{nombre[0].upper() + nombre[1:]}: entre {minimo} y {maximo} caracteres.")
     return s
+
+
+def _fecha(v, nombre="la fecha"):
+    """AAAA-MM-DD real (rechaza 2026-02-30, que pasaba la expresión regular)."""
+    if not isinstance(v, str) or not FECHA_RE.match(v):
+        raise c.ErrorPeticion(400, f"Fecha inválida en {nombre}.")
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        raise c.ErrorPeticion(400, f"Fecha inválida en {nombre}.") from None
 
 
 # ── Sesión y permisos ───────────────────────────────────────────────────────
@@ -151,11 +166,15 @@ def _buscar(qs, u):
 def _lista(qs, u):
     q = re.sub(r"[^\w\s.\-]", "", (qs.get("q", [""])[0] or ""))[:60].strip()
     cols = COLS_LISTA + (",precio_costo" if c.es_admin(u) else "")
-    params = [("select", cols), ("order", "nombre.asc"), ("limit", "200")]
-    if qs.get("seccion"):
+    # activo=true: igual que _buscar; antes se listaban variantes inactivas y luego fallaban al darles entrada
+    params = [("select", cols), ("activo", "is.true"), ("order", "nombre.asc"), ("limit", str(LIMITE_LISTA + 1))]
+    if qs.get("seccion") and qs["seccion"][0]:
         params.append(("seccion_id", f"eq.{_entero(qs['seccion'][0], 'la sección', 1, 32000)}"))
-    if qs.get("alerta", [""])[0] in ("bajo", "alto"):
-        params.append(("alerta", f"eq.{qs['alerta'][0]}"))
+    alerta = qs.get("alerta", [""])[0]
+    if alerta in ("bajo", "alto"):
+        params.append(("alerta", f"eq.{alerta}"))
+    elif alerta == "agotado":
+        params.append(("cantidad", "lte.0"))
     if len(q) >= 2:
         if q.isdigit() and len(q) >= 6:
             params.append(("codigo_barras", f"eq.{q}"))
@@ -165,7 +184,7 @@ def _lista(qs, u):
 
 
 def _kardex(qs, u):
-    params = [("select", "*"), ("order", "creado_en.desc,id.desc"), ("limit", "300")]
+    params = [("select", "*"), ("order", "creado_en.desc,id.desc"), ("limit", str(LIMITE_KARDEX + 1))]
     g = lambda k: (qs.get(k, [""])[0] or "").strip()  # noqa: E731
     if g("variante"):
         params.append(("variante_id", f"eq.{_entero(g('variante'), 'la variante')}"))
@@ -179,11 +198,16 @@ def _kardex(qs, u):
         if not UUID_RE.match(g("usuario")):
             raise c.ErrorPeticion(400, "Usuario inválido.")
         params.append(("usuario_id", f"eq.{g('usuario')}"))
-    for clave, op, hora in (("desde", "gte", "00:00:00"), ("hasta", "lte", "23:59:59")):
-        if g(clave):
-            if not FECHA_RE.match(g(clave)):
-                raise c.ErrorPeticion(400, "Fecha inválida.")
-            params.append(("creado_en", f"{op}.{g(clave)}T{hora}-04:00"))   # hora de Venezuela (UTC-4)
+    # Fechas en hora de Venezuela (UTC-4). «hasta» es inclusivo: se usa < día siguiente 00:00
+    # (antes era <= 23:59:59 y se perdían los movimientos del último segundo).
+    desde = _fecha(g("desde"), "«Desde»") if g("desde") else None
+    hasta = _fecha(g("hasta"), "«Hasta»") if g("hasta") else None
+    if desde and hasta and desde > hasta:
+        raise c.ErrorPeticion(400, "La fecha «Desde» no puede ser posterior a «Hasta».")
+    if desde:
+        params.append(("creado_en", f"gte.{desde.isoformat()}T00:00:00-04:00"))
+    if hasta:
+        params.append(("creado_en", f"lt.{(hasta + timedelta(days=1)).isoformat()}T00:00:00-04:00"))
     filas = _leer("inv_kardex", params)
     if not c.es_admin(u):          # los costos solo los ve el administrador
         for f in filas:
@@ -192,6 +216,58 @@ def _kardex(qs, u):
 
 
 # ── Escrituras (solo admin) ─────────────────────────────────────────────────
+def _hay(v):
+    return v not in (None, "")
+
+
+def _variante(v, n):
+    """Valida y normaliza una variante. Solo pasan las claves conocidas y con valores ya redondeados
+    (antes se validaba pero se enviaba el JSON crudo a la función SQL)."""
+    if not isinstance(v, dict):
+        raise c.ErrorPeticion(400, f"Variante {n}: datos inválidos.")
+    try:
+        out = {}
+        for clave, nombre, maximo in (("color", "el color", 40), ("talla_presentacion", "la talla o presentación", 40),
+                                      ("codigo_barras", "el código de barras", 32)):
+            t = _texto(v.get(clave), nombre, maximo, obligatorio=False)
+            if t:
+                out[clave] = t
+        out["precio_detal"] = _numero(v.get("precio_detal"), "el precio detal")
+        if _hay(v.get("precio_costo")):
+            out["precio_costo"] = _numero(v.get("precio_costo"), "el precio de costo", 0)
+        for precio, cant, etq in (("precio_mayor", "cantidad_mayor", "mayor"),
+                                  ("precio_gran_mayor", "cantidad_gran_mayor", "gran mayor")):
+            if _hay(v.get(precio)) != _hay(v.get(cant)):
+                raise c.ErrorPeticion(400, f"el precio {etq} y su cantidad mínima deben indicarse juntos.")
+            if _hay(v.get(precio)):
+                out[precio] = _numero(v.get(precio), f"el precio {etq}")
+                out[cant] = _entero(v.get(cant), f"la cantidad {etq}", 1)
+        if "cantidad_mayor" in out and "cantidad_gran_mayor" in out \
+                and out["cantidad_gran_mayor"] <= out["cantidad_mayor"]:
+            raise c.ErrorPeticion(400, "gran mayor debe empezar en una cantidad superior a la de mayor.")
+        for clave, nombre in (("cantidad_inicial", "la cantidad inicial"), ("cantidad_minima", "el mínimo"),
+                              ("cantidad_maxima", "el máximo")):
+            if _hay(v.get(clave)):
+                out[clave] = _entero(v.get(clave), nombre, 0, 1_000_000, False)
+        if "cantidad_minima" in out and "cantidad_maxima" in out and out["cantidad_minima"] > out["cantidad_maxima"]:
+            raise c.ErrorPeticion(400, "el mínimo no puede ser mayor que el máximo.")
+        if v.get("maneja_lotes") is True:
+            out["maneja_lotes"] = True
+        lote = _texto(v.get("lote"), "el lote", 40, obligatorio=False)
+        if lote:
+            out["lote"] = lote
+        if _hay(v.get("vencimiento")):
+            out["vencimiento"] = _fecha(v.get("vencimiento"), "el vencimiento").isoformat()
+        imgs = v.get("imagenes")
+        if imgs is not None:
+            if not isinstance(imgs, list) or len(imgs) > 4 or not all(isinstance(x, str) and len(x) <= 500 for x in imgs):
+                raise c.ErrorPeticion(400, MENSAJES["maximo_imagenes"])
+            out["imagenes"] = imgs
+        return out
+    except c.ErrorPeticion as e:
+        raise c.ErrorPeticion(e.status, f"Variante {n}: {e.mensaje[0].lower() + e.mensaje[1:]}") from None
+
+
 def _crear(d, u):
     prod, variantes = d.get("producto"), d.get("variantes")
     if not isinstance(prod, dict) or not isinstance(variantes, list) or not 1 <= len(variantes) <= 50:
@@ -202,13 +278,8 @@ def _crear(d, u):
         "marca": _texto(prod.get("marca"), "la marca", 60, obligatorio=False),
         "descripcion": _texto(prod.get("descripcion"), "la descripción", 1000, obligatorio=False),
     }
-    for v in variantes:
-        if not isinstance(v, dict):
-            raise c.ErrorPeticion(400, "Variante inválida.")
-        _numero(v.get("precio_detal"), "el precio detal")
-        _numero(v.get("precio_costo", 0), "el precio de costo", 0)
-        _entero(v.get("cantidad_inicial", 0), "la cantidad inicial", 0, 1_000_000, False)
-    _rpc("inv_crear_producto", {"p_usuario": u["id"], "p_producto": limpio, "p_variantes": variantes})
+    limpias = [_variante(v, i) for i, v in enumerate(variantes, 1)]
+    _rpc("inv_crear_producto", {"p_usuario": u["id"], "p_producto": limpio, "p_variantes": limpias})
     return "Producto registrado."
 
 
@@ -225,10 +296,8 @@ def _llegada(d, u):
             "cantidad": _entero(ln.get("cantidad"), "la cantidad", 1, 100_000),
             "costo": _numero(ln.get("costo"), "el costo"),
             "lote": _texto(ln.get("lote"), "el lote", 40, obligatorio=False),
-            "vencimiento": ln.get("vencimiento") or None,
+            "vencimiento": _fecha(ln["vencimiento"], "el vencimiento").isoformat() if _hay(ln.get("vencimiento")) else None,
         })
-        if salida[-1]["vencimiento"] and not FECHA_RE.match(str(salida[-1]["vencimiento"])):
-            raise c.ErrorPeticion(400, "Fecha de vencimiento inválida.")
     _rpc("inv_llegada", {
         "p_usuario": u["id"],
         "p_proveedor": _entero(d.get("proveedor_id"), "el proveedor", 1, 10**9, False),
@@ -250,11 +319,19 @@ def _mover(d, u, tipo):
 
 
 def _proveedor(d, u):
-    _leer("inv_proveedores", None, insertar={
-        "nombre": _texto(d.get("nombre"), "el nombre", 120),
+    """Idempotente: si ya existe (sin distinguir mayúsculas) se devuelve en lugar de fallar con un error
+    de duplicado que además se traducía como «código de barras repetido»."""
+    nombre = _texto(d.get("nombre"), "el nombre", 120)
+    for p in _leer("inv_proveedores", [("select", "id,nombre,activo"), ("limit", "1000")]):
+        if str(p.get("nombre", "")).strip().lower() == nombre.lower():
+            if p.get("activo") is False:
+                raise c.ErrorPeticion(409, "Ese proveedor existe pero está desactivado.")
+            return "Ese proveedor ya estaba registrado.", {"proveedor_id": p["id"]}
+    filas = _leer("inv_proveedores", None, insertar={
+        "nombre": nombre,
         "contacto": _texto(d.get("contacto"), "el contacto", 200, obligatorio=False),
     })
-    return "Proveedor registrado."
+    return "Proveedor registrado.", {"proveedor_id": filas[0]["id"] if filas else None}
 
 
 class handler(BaseHTTPRequestHandler):
@@ -263,6 +340,10 @@ class handler(BaseHTTPRequestHandler):
 
     def _ok(self, **extra):
         c.responder(self, 200, {"status": "ok", **extra})
+
+    def _recortado(self, filas, limite):
+        """Se pide limite+1 filas: si sobra una, el cliente avisa de que hay más resultados."""
+        return self._ok(data=filas[:limite], truncado=len(filas) > limite)
 
     def _fallo(self, e):
         c.responder(self, e.status, {"status": "error", "message": e.mensaje})
@@ -275,9 +356,9 @@ class handler(BaseHTTPRequestHandler):
                 return self._ok(data=_buscar(qs, _entrada(self, "personal")))
             u = _entrada(self, "encargado")
             if modo == "lista":
-                return self._ok(data=_lista(qs, u))
+                return self._recortado(_lista(qs, u), LIMITE_LISTA)
             if modo == "kardex":
-                return self._ok(data=_kardex(qs, u))
+                return self._recortado(_kardex(qs, u), LIMITE_KARDEX)
             if modo == "secciones":
                 return self._ok(data=_leer("inv_secciones", [("select", "id,nombre"), ("activo", "is.true"), ("order", "id")]))
             if modo == "proveedores":
@@ -288,12 +369,15 @@ class handler(BaseHTTPRequestHandler):
         except (requests.RequestException, RuntimeError) as e:
             print(f"[inventario] GET {e}", file=sys.stderr)
             c.responder(self, 503, {"status": "error", "message": "Servicio no disponible. Inténtalo de nuevo."})
+        except Exception as e:  # noqa: BLE001 - nunca dejar escapar un 500 sin JSON
+            print(f"[inventario] GET inesperado {type(e).__name__}: {e}", file=sys.stderr)
+            c.responder(self, 500, {"status": "error", "message": "Error interno. Inténtalo de nuevo."})
 
     def do_POST(self):
         try:
             u = _entrada(self, "admin")
             d = c.leer_json(self, MAX_BODY)
-            accion = d.get("accion")
+            accion, extra = d.get("accion"), {}
             if accion == "crear":
                 msg = _crear(d, u)
             elif accion == "llegada":
@@ -308,12 +392,15 @@ class handler(BaseHTTPRequestHandler):
                 _mover(d, u, "AJUSTE_ENTRADA" if sentido == "entrada" else "AJUSTE_SALIDA")
                 msg = "Ajuste registrado."
             elif accion == "proveedor":
-                msg = _proveedor(d, u)
+                msg, extra = _proveedor(d, u)
             else:
                 raise c.ErrorPeticion(400, "Acción no válida.")
-            self._ok(message=msg)
+            self._ok(message=msg, **extra)
         except c.ErrorPeticion as e:
             self._fallo(e)
         except (requests.RequestException, RuntimeError) as e:
             print(f"[inventario] POST {e}", file=sys.stderr)
             c.responder(self, 503, {"status": "error", "message": "Servicio no disponible. Inténtalo de nuevo."})
+        except Exception as e:  # noqa: BLE001
+            print(f"[inventario] POST inesperado {type(e).__name__}: {e}", file=sys.stderr)
+            c.responder(self, 500, {"status": "error", "message": "Error interno. Inténtalo de nuevo."})
