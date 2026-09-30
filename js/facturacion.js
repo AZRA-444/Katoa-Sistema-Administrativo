@@ -58,8 +58,9 @@ function pulso(nodo, texto) {
 //--- CÁLCULOS (funciones puras, sin DOM) ---//
 export const totalLinea = (p) => round2(p.cantidad * p.precioUnitario);
 
-/** Precio al mayor si la cantidad alcanza el umbral; si no, precio al detal. */
-export function precioUnitario(cantidad, { precioDetal, precioMayor, cantidadMayor }) {
+/** Gran mayor si alcanza su umbral; si no, mayor si alcanza el suyo; si no, detal. */
+export function precioUnitario(cantidad, { precioDetal, precioMayor, cantidadMayor, precioGranMayor = 0, cantidadGranMayor = 0 }) {
+    if (precioGranMayor > 0 && cantidadGranMayor > 0 && cantidad >= cantidadGranMayor) return precioGranMayor;
     return precioMayor > 0 && cantidadMayor > 0 && cantidad >= cantidadMayor ? precioMayor : precioDetal;
 }
 
@@ -262,12 +263,13 @@ function initProducto() {
         activo = i;
         items[i]?.scrollIntoView({ block: 'nearest' });
     };
-    const etiqueta = (p) => [p.nombre, p.color, p.calibre].filter(Boolean).join(' - ');
+    const etiqueta = (p) => [p.nombre, p.color, p.talla].filter(Boolean).join(' - ');
 
     function elegir(p) {
         sel = {
             id: p.id, stock: Number(p.cantidad) || 0, precioDetal: Number(p.precio_detal) || 0,
             precioMayor: Number(p.precio_mayor) || 0, cantidadMayor: Number(p.cantidad_mayor) || 0,
+            precioGranMayor: Number(p.precio_gran_mayor) || 0, cantidadGranMayor: Number(p.cantidad_gran_mayor) || 0,
         };
         nombre.value = etiqueta(p);
         if (!(Number(cant.value) > 0)) cant.value = 1;
@@ -278,8 +280,9 @@ function initProducto() {
     function pintar(resultados, texto) {
         const opciones = resultados.filter((p) => p?.id != null && etiqueta(p)).map((p) => {
             const mayor = Number(p.precio_mayor) > 0 && Number(p.cantidad_mayor) > 0;
+            const gran = Number(p.precio_gran_mayor) > 0 && Number(p.cantidad_gran_mayor) > 0;
             const stock = Number(p.cantidad) > 0 ? `Stock ${p.cantidad}` : 'Sin stock';
-            const meta = `${usd(Number(p.precio_detal) || 0)}${mayor ? ` · mayor ${usd(p.precio_mayor)} desde ${p.cantidad_mayor}` : ''} · ${stock}`;
+            const meta = `${usd(Number(p.precio_detal) || 0)}${mayor ? ` · mayor ${usd(p.precio_mayor)} desde ${p.cantidad_mayor}` : ''}${gran ? ` · gran mayor ${usd(p.precio_gran_mayor)} desde ${p.cantidad_gran_mayor}` : ''} · ${stock}`;
             const li = el('li', { className: 'opt' + (Number(p.cantidad) > 0 ? '' : ' sin-stock'), role: 'option' },
                 el('span', { className: 'opt-nombre', textContent: etiqueta(p) }),
                 el('span', { className: 'opt-meta', textContent: meta }));
