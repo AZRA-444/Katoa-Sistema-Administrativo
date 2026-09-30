@@ -37,7 +37,9 @@ TOLERANCIA = Decimal("0.02")  # diferencia admitida por redondeo JS vs Python
 BUCKET = "comprobantes"
 PREFIJO_JPEG = "data:image/jpeg;base64,"
 
-METODOS = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}
+METODOS_MIXTO = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}  # los que se pueden combinar
+METODOS = METODOS_MIXTO | {"MIXTO"}  # MIXTO = pago combinado (varios métodos, repetibles)
+MAX_PAGOS = 8  # máximo de pagos dentro de un pago combinado
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}  # se cobran en dólares con la tasa USDT
 MAX_BRECHA_USDT = Decimal(2)  # tasa USDT > 2× BCV se considera un error de digitación
 
@@ -120,6 +122,86 @@ def _decodificar_comprobante(valor):
     return datos
 
 
+def _validar_mixto(p, t, tasa):
+    """Pago combinado: varios pagos (métodos repetibles) que juntos cubren el total.
+
+    Cada pago se convierte a "dólares de lista" (los de la tasa BCV):
+      · en Bs            → monto ÷ tasa BCV
+      · en $ con descuento (ED, Zelle, Binance) → monto × max(1, tasa USDT ÷ tasa BCV)
+      · en $ sin descuento / "Otros" en $       → monto
+    La suma debe igualar el total de lista. Debe coincidir con abonoLinea en js/facturacion.js.
+    Devuelve (pagos_limpios, total_cobrado_usd, nota).
+    """
+    crudos = p.get("pagos")
+    if not isinstance(crudos, list) or not 2 <= len(crudos) <= MAX_PAGOS:
+        _err(f"El pago combinado necesita entre 2 y {MAX_PAGOS} pagos.")
+
+    usa_usd = any(isinstance(x, dict) and x.get("metodo") in METODOS_USD for x in crudos)
+    factor, tasa_usdt, aplicar = Decimal(1), None, False
+    if usa_usd:
+        aplicar = p.get("aplicar_descuento")
+        if not isinstance(aplicar, bool):
+            _err("Falta indicar si se aplica el descuento. Recarga la página e inténtalo de nuevo.")
+        if aplicar:
+            tasa_usdt = _positivo(p.get("tasa_usdt"), "la tasa USDT", Decimal(1_000_000))
+            if tasa_usdt > tasa * MAX_BRECHA_USDT:
+                _err("La tasa USDT parece incorrecta. Revísala e inténtalo de nuevo.")
+            factor = max(Decimal(1), tasa_usdt / tasa)
+
+    limpios, abonado, ahorro = [], Decimal(0), Decimal(0)
+    for i, x in enumerate(crudos, 1):
+        if not isinstance(x, dict):
+            _err(f"Pago {i} inválido.")
+        metodo = x.get("metodo")
+        if metodo not in METODOS_MIXTO:
+            _err(f"Pago {i}: método inválido.")
+        moneda = x.get("moneda")
+        esperada = moneda if metodo == "OTROS" else ("USD" if metodo in METODOS_USD else "BS")
+        if moneda not in ("USD", "BS") or moneda != esperada:
+            _err(f"Pago {i}: moneda inválida.")
+        monto = _positivo(x.get("monto"), f"el monto del pago {i}", Decimal(10) ** 12)
+        observaciones = _texto(x.get("observaciones"), f"las observaciones del pago {i}", 500, obligatorio=False)
+        banco = referencia = "N/A"
+
+        if metodo == "PM":
+            banco = _texto(x.get("banco"), f"el banco del pago {i}", 40)
+            referencia = _texto(x.get("referencia"), f"la referencia del pago {i}", 12)
+            if not REFERENCIA_RE.match(referencia):
+                _err(f"Pago {i}: la referencia debe tener entre 4 y 12 dígitos.")
+        elif metodo in ("ZELLE", "BINANCE"):
+            referencia = _texto(x.get("referencia"), f"la referencia del pago {i}", 30).upper()
+            if not REFERENCIA_DIGITAL_RE.match(referencia):
+                _err(f"Pago {i}: la referencia debe tener entre 4 y 30 letras o números.")
+        elif metodo == "OTROS" and not observaciones:
+            _err(f"Pago {i}: describe el método de pago en las observaciones.")
+
+        if moneda == "BS":
+            abono = monto / tasa
+        elif metodo in METODOS_USD:
+            abono = monto * factor
+            ahorro += monto * (factor - 1)
+        else:
+            abono = monto
+        abonado += abono
+        limpios.append({
+            "metodo": metodo, "moneda": moneda, "monto": float(_r2(monto)), "abono_usd": float(_r2(abono)),
+            "banco": banco, "referencia": referencia, "observaciones": observaciones,
+        })
+
+    tolerancia = TOLERANCIA + Decimal("0.01") * len(limpios)  # mismo criterio que toleranciaMixto en el JS
+    diferencia = t["total"] - abonado
+    if diferencia > tolerancia:
+        _err("Los pagos no cubren el total de la factura.")
+    if diferencia < -tolerancia:
+        _err("Los pagos superan el total de la factura.")
+
+    ahorro = _r2(ahorro)
+    nota = f"Pago combinado ({len(limpios)} pagos)"
+    if usa_usd:
+        nota += f" · Descuento USDT aplicado · Tasa {tasa_usdt:.2f} · Ahorro ${ahorro:.2f}" if aplicar else " · Sin descuento USDT"
+    return limpios, t["total"] - ahorro, nota
+
+
 def validar(p):
     """Devuelve (p_factura, p_detalles, comprobante_bytes|None) o lanza ErrorPeticion(400)."""
     id_factura = _texto(p.get("id_factura"), "el id de factura", 64)
@@ -174,6 +256,10 @@ def validar(p):
     comprobante = None
 
     a_pagar = None  # cobro en dólares (solo métodos en USD)
+    pagos_combinados = None
+    if metodo == "MIXTO":
+        pagos_combinados, a_pagar, nota = _validar_mixto(p, t, tasa)
+        observaciones = f"{observaciones} | {nota}" if observaciones else nota
     if metodo in METODOS_USD:
         aplicar = p.get("aplicar_descuento")
         if not isinstance(aplicar, bool):
@@ -197,7 +283,7 @@ def validar(p):
         referencia = _texto(p.get("referencia"), "la referencia", 12)
         if not REFERENCIA_RE.match(referencia):
             _err("La referencia debe tener entre 4 y 12 dígitos.")
-        comprobante = _decodificar_comprobante(p.get("comprobante"))
+        # Pago móvil: no se sube comprobante (si llegara en la petición, se ignora).
     elif metodo in ("ZELLE", "BINANCE"):
         referencia = _texto(p.get("referencia"), "la referencia", 30).upper()
         if not REFERENCIA_DIGITAL_RE.match(referencia):
@@ -206,7 +292,9 @@ def validar(p):
     elif metodo == "OTROS":
         if not observaciones:
             _err("Describe el método de pago en las observaciones.")
-    elif metodo in ("ED", "EBS") and p.get("monto_recibido") is not None:
+    elif metodo in ("ED", "EBS"):
+        if p.get("monto_recibido") in (None, ""):
+            _err("Ingresa el monto recibido.")
         recibido = _positivo(p.get("monto_recibido"), "el monto recibido", Decimal(10) ** 12)
         total_moneda = a_pagar if metodo == "ED" else t["total_bs"]
         if recibido + TOLERANCIA < total_moneda:
@@ -223,7 +311,7 @@ def validar(p):
         "subtotal_bs": float(t["total_bs"]), "total_bs": float(t["total_bs"]),
         "tasa_cambio": float(tasa),
         "metodo_pago": metodo, "referencia": referencia, "banco": banco,
-        "comprobante_path": None, "observaciones": observaciones, "pagos_combinados": None,
+        "comprobante_path": None, "observaciones": observaciones, "pagos_combinados": pagos_combinados,
     }
     detalles = [
         {
