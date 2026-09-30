@@ -17,7 +17,7 @@ const BANCOS = [
 
 // Métodos que se cobran en dólares: el total se convierte con la tasa USDT (ver montoEnDolares).
 const METODOS_USD = new Set(['ED', 'ZELLE', 'BINANCE']);
-const METODOS_COMPROBANTE = new Set(['PM', 'ZELLE', 'BINANCE']);
+const METODOS_COMPROBANTE = new Set(['ZELLE', 'BINANCE']); // el pago móvil NO sube comprobante
 
 //--- ESTADO ---//
 const state = {
@@ -28,7 +28,9 @@ const state = {
     tasaUsdtManual: false,
     descuentoUsd: true,   // interruptor: aplicar la conversión USDT en pagos en dólares
     cliente: null,        // datos ya validados del cliente
-    comprobante: null,    // foto del pago móvil (data URL JPEG comprimido)
+    comprobante: null,    // foto del pago Zelle/Binance (data URL JPEG comprimido)
+    pagosMixtos: [],      // líneas del pago combinado
+    mixtoSeq: 0,          // contador de ids de esas líneas
     idFactura: null,      // se conserva entre reintentos para no duplicar la factura
     nuevoId: null,        // fila recién agregada (para resaltarla una vez)
     enviando: false,
@@ -477,13 +479,14 @@ function alternarDescuento(activo) {
     if (caja) caja.outerHTML = htmlMontoDolares(calcularTotales(state.items, state.tasa));
     $('#EDMontoRecibido')?.dispatchEvent(new Event('input')); // recalcula el vuelto
     renderResumen(); // el aside refleja el descuento activado o desactivado
+    if ($('#metodoPago').value === 'MIXTO') actualizarMixto(); // cambia lo que abona cada pago en dólares
 }
 
 function selectMetodoPago(valor) {
     const cont = $('#paymentDetails');
     const t = calcularTotales(state.items, state.tasa);
     state.comprobante = null;
-    $('#filaDescuento').hidden = !METODOS_USD.has(valor);
+    $('#filaDescuento').hidden = !(METODOS_USD.has(valor) || valor === 'MIXTO');
     $('#descUsdt').checked = state.descuentoUsd;
     $('#pagoError').hidden = true;
     renderResumen(); // según el método, el aside muestra el total con descuento o el de lista
@@ -491,8 +494,10 @@ function selectMetodoPago(valor) {
     const monto = (titulo, texto) => `<div class="pago-monto"><small>${titulo}</small><strong>${texto}</strong></div>`;
     const campo = (id, etiqueta, control, clase = '') =>
         `<div class="field ${clase}"><label for="${id}">${etiqueta}</label>${control}</div>`;
-    const observaciones = (id) =>
-        campo(id, 'Observaciones', `<textarea id="${id}" rows="3" maxlength="500" placeholder="Detalla alguna novedad…"></textarea>`, 'span');
+    // Opcional en todos los métodos, salvo "Otro" (ahí describe cómo se pagó y es obligatoria).
+    const observaciones = (id, obligatoria = false) =>
+        campo(id, obligatoria ? 'Observaciones' : 'Observaciones (opcional)',
+            `<textarea id="${id}" rows="3" maxlength="500" ${obligatoria ? 'required' : ''} placeholder="${obligatoria ? 'Describe el método de pago…' : 'Detalla alguna novedad…'}"></textarea>`, 'span');
     const mixto = `${usd(t.total)} / ${bs(t.totalBs)}`;
 
     const comprobante = `<div class="field span"><span class="lbl">Comprobante de pago (opcional)</span>
@@ -507,9 +512,7 @@ function selectMetodoPago(valor) {
                 `<select id="bankSelect"><option value="" disabled selected>Seleccione un banco</option>` +
                 BANCOS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('') + `</select>`) +
             campo('pmRef', 'Número de referencia',
-                `<input id="pmRef" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Últimos 4 a 12 dígitos">`) +
-            comprobante;
-        activarComprobante();
+                `<input id="pmRef" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Últimos 4 a 12 dígitos">`);
     } else if (valor === 'PVD' || valor === 'PVC') {
         cont.innerHTML = monto('Monto a cobrar en el punto de venta', mixto);
     } else if (valor === 'ED') {
@@ -534,7 +537,9 @@ function selectMetodoPago(valor) {
             campo('EBSVueltoEntrega', 'Vuelto a entregar (Bs)', `<input id="EBSVueltoEntrega" readonly placeholder="0,00">`);
         activarVuelto($('#EBSMontoRecibido'), $('#EBSVueltoEntrega'), t.totalBs, bs);
     } else if (valor === 'OTROS') {
-        cont.innerHTML = monto('Monto', mixto) + observaciones('observacionesOTROS');
+        cont.innerHTML = monto('Monto', mixto) + observaciones('observacionesOTROS', true);
+    } else if (valor === 'MIXTO') {
+        iniciarMixto(cont);
     }
 
     $('#pmRef')?.addEventListener('input', (e) => { e.target.value = soloDigitos(e.target.value); });
@@ -612,24 +617,244 @@ function leerPago() {
         pago.banco = val('bankSelect');
         pago.referencia = val('pmRef');
         if (!pago.banco) return { error: 'Selecciona el banco destino.', campo: 'bankSelect' };
+        if (!pago.referencia) return { error: 'Ingresa el número de referencia.', campo: 'pmRef' };
         if (!/^\d{4,12}$/.test(pago.referencia)) return { error: 'La referencia debe tener entre 4 y 12 dígitos.', campo: 'pmRef' };
     } else if (metodo === 'ED' || metodo === 'EBS') {
         const id = metodo === 'ED' ? 'EDMontoRecibido' : 'EBSMontoRecibido';
         const total = metodo === 'ED' ? aPagar : t.totalBs;
-        if (val(id) !== '') {
-            const recibido = Number(val(id));
-            if (!(recibido >= total)) return { error: 'El monto recibido no cubre el total de la factura.', campo: id };
-            pago.monto_recibido = recibido;
-        }
+        if (val(id) === '') return { error: 'Ingresa el monto recibido.', campo: id };
+        const recibido = Number(val(id));
+        if (!Number.isFinite(recibido) || recibido <= 0) return { error: 'El monto recibido no es válido.', campo: id };
+        if (!(recibido >= total)) return { error: 'El monto recibido no cubre el total a pagar.', campo: id };
+        pago.monto_recibido = recibido;
         if (metodo === 'ED') pago.observaciones = val('observacionesED');
     } else if (metodo === 'ZELLE' || metodo === 'BINANCE') {
         pago.referencia = val('refDigital');
         pago.observaciones = val('observacionesDIG');
+        if (!pago.referencia) return { error: metodo === 'ZELLE' ? 'Ingresa el número de confirmación.' : 'Ingresa el ID de orden o referencia.', campo: 'refDigital' };
         if (!/^[A-Z0-9]{4,30}$/.test(pago.referencia)) return { error: 'La referencia debe tener entre 4 y 30 letras o números.', campo: 'refDigital' };
     } else if (metodo === 'OTROS') {
         pago.observaciones = val('observacionesOTROS');
         if (!pago.observaciones) return { error: 'Describe el método de pago en las observaciones.', campo: 'observacionesOTROS' };
+    } else if (metodo === 'MIXTO') {
+        return leerMixto(pago);
     }
+    return { pago };
+}
+
+//--- PAGO COMBINADO (varios métodos, repetibles) ---//
+// Cada pago se convierte a "dólares de lista" (tasa BCV) y la suma debe igualar el total.
+// Debe coincidir con _validar_mixto en api/enviar-factura.py.
+const MIXTO_MAX = 8;
+const METODOS_MIXTO = [
+    ['PM', 'Pago móvil'], ['PVD', 'Punto de venta (débito)'], ['PVC', 'Punto de venta (crédito)'],
+    ['ED', 'Efectivo en divisas ($)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'],
+    ['EBS', 'Efectivo en bolívares (Bs)'], ['OTROS', 'Otros'],
+];
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const toleranciaMixto = (n) => 0.02 + 0.01 * n;
+const monedaLinea = (l) => (l.metodo === 'OTROS' ? l.otraMoneda : METODOS_USD.has(l.metodo) ? 'USD' : 'BS');
+/** Cuánto vale cada $ de los métodos en dólares frente al precio de lista (USDT ÷ BCV, nunca menos de 1). */
+const factorUsd = () => (state.descuentoUsd && state.tasaUsdt > 0 ? Math.max(1, state.tasaUsdt / state.tasa) : 1);
+
+/** Cuánto abona un pago, en dólares de lista. */
+function abonoLinea(l) {
+    const m = Number(l.monto);
+    if (!(m > 0)) return 0;
+    if (monedaLinea(l) === 'BS') return m / state.tasa;
+    return m * (METODOS_USD.has(l.metodo) ? factorUsd() : 1);
+}
+
+/** Lo que falta por cubrir (en dólares de lista); negativo si los pagos se pasan. */
+const restanteMixto = () =>
+    round2(calcularTotales(state.items, state.tasa).total - state.pagosMixtos.reduce((a, l) => a + abonoLinea(l), 0));
+
+const nuevaLineaMixto = (metodo) => ({ id: ++state.mixtoSeq, metodo, otraMoneda: 'USD', monto: '', banco: '', referencia: '', obs: '' });
+
+/** Rellena el monto de un pago con lo que falta, en la moneda de ese pago. */
+function completarLineaMixto(l) {
+    const faltante = restanteMixto() + abonoLinea(l);
+    if (!(faltante > 0)) return;
+    const nativo = monedaLinea(l) === 'BS' ? faltante * state.tasa : faltante / (METODOS_USD.has(l.metodo) ? factorUsd() : 1);
+    l.monto = String(round2(nativo));
+}
+
+function htmlLineaMixto(l, n) {
+    const id = (c) => `mx-${l.id}-${c}`;
+    const moneda = monedaLinea(l);
+    const campo = (c, etiqueta, control, clase = '') =>
+        `<div class="field ${clase}"><label for="${id(c)}">${etiqueta}</label>${control}</div>`;
+    const opMetodos = METODOS_MIXTO.map(([v, nombre]) => `<option value="${v}"${v === l.metodo ? ' selected' : ''}>${nombre}</option>`).join('');
+    const opBancos = `<option value="" disabled${l.banco ? '' : ' selected'}>Seleccione un banco</option>` +
+        BANCOS.map(([v, nombre]) => `<option value="${v}"${v === l.banco ? ' selected' : ''}>${nombre}</option>`).join('');
+
+    let campos = '';
+    if (l.metodo === 'OTROS') {
+        campos += campo('otraMoneda', 'Moneda',
+            `<select id="${id('otraMoneda')}" data-campo="otraMoneda"><option value="USD"${moneda === 'USD' ? ' selected' : ''}>Dólares ($)</option>` +
+            `<option value="BS"${moneda === 'BS' ? ' selected' : ''}>Bolívares (Bs)</option></select>`);
+    }
+    campos += campo('monto', moneda === 'BS' ? 'Monto (Bs)' : 'Monto ($)',
+        `<input id="${id('monto')}" data-campo="monto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" value="${esc(l.monto)}">`);
+    if (l.metodo === 'PM') {
+        campos += campo('banco', 'Banco destino', `<select id="${id('banco')}" data-campo="banco">${opBancos}</select>`);
+        campos += campo('referencia', 'Número de referencia',
+            `<input id="${id('referencia')}" data-campo="referencia" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Últimos 4 a 12 dígitos" value="${esc(l.referencia)}">`);
+    } else if (l.metodo === 'ZELLE' || l.metodo === 'BINANCE') {
+        campos += campo('referencia', l.metodo === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia',
+            `<input id="${id('referencia')}" data-campo="referencia" autocomplete="off" autocapitalize="characters" maxlength="30" placeholder="4 a 30 letras o números" value="${esc(l.referencia)}">`);
+    }
+    if (['ED', 'ZELLE', 'BINANCE', 'OTROS'].includes(l.metodo)) {
+        const obligatoria = l.metodo === 'OTROS';
+        campos += campo('obs', obligatoria ? 'Observaciones' : 'Observaciones (opcional)',
+            `<textarea id="${id('obs')}" data-campo="obs" rows="2" maxlength="500" placeholder="${obligatoria ? 'Describe el método de pago…' : 'Detalla alguna novedad…'}">${esc(l.obs)}</textarea>`, 'span');
+    }
+
+    const quitar = state.pagosMixtos.length > 2
+        ? `<button class="btn btn-ghost btn-mini" type="button" data-quitar aria-label="Quitar el pago ${n}"><i class="fas fa-trash"></i></button>` : '';
+    return `<div class="pago-linea" data-id="${l.id}">` +
+        `<div class="pago-linea-cab"><strong>Pago ${n}</strong>` +
+        `<select id="${id('metodo')}" data-campo="metodo" aria-label="Método del pago ${n}">${opMetodos}</select>${quitar}</div>` +
+        `<div class="grid-2">${campos}</div>` +
+        `<div class="pago-linea-pie"><small data-equiv></small><button class="link" type="button" data-completar>Completar con el restante</button></div>` +
+        `</div>`;
+}
+
+/** Actualiza "falta por cubrir" y lo que abona cada pago, sin repintar los campos (no pierde el foco). */
+function actualizarMixto() {
+    state.idFactura = null; // cambió el cobro: el próximo envío usa un id nuevo
+    const caja = $('#mxRestante');
+    if (!caja) return;
+    const rest = restanteMixto();
+    const estado = rest > toleranciaMixto(state.pagosMixtos.length) ? 'falta'
+        : rest < -toleranciaMixto(state.pagosMixtos.length) ? 'sobra' : 'ok';
+    caja.dataset.estado = estado;
+    caja.querySelector('small').textContent = { falta: 'Falta por cubrir', sobra: 'Excede el total', ok: 'Pagos cubiertos' }[estado];
+    caja.querySelector('strong').textContent = estado === 'ok' ? usd(0) : `${usd(Math.abs(rest))} / ${bs(round2(Math.abs(rest) * state.tasa))}`;
+    for (const fila of document.querySelectorAll('.pago-linea')) {
+        const l = state.pagosMixtos.find((x) => x.id === Number(fila.dataset.id));
+        const abono = l ? abonoLinea(l) : 0;
+        const conDescuento = l && METODOS_USD.has(l.metodo) && factorUsd() > 1;
+        fila.querySelector('[data-equiv]').textContent =
+            abono > 0 ? `Abona ${usd(round2(abono))} de la factura${conDescuento ? ' (con descuento)' : ''}` : '';
+    }
+}
+
+function pintarLineasMixto() {
+    const cont = $('#mxLineas');
+    if (!cont) return;
+    cont.innerHTML = state.pagosMixtos.map((l, i) => htmlLineaMixto(l, i + 1)).join('');
+    $('#mxAgregar').disabled = state.pagosMixtos.length >= MIXTO_MAX;
+    actualizarMixto();
+}
+
+function iniciarMixto(cont) {
+    state.pagosMixtos = [nuevaLineaMixto('PM'), nuevaLineaMixto('ED')];
+    const t = calcularTotales(state.items, state.tasa);
+    // Contenedor nuevo en cada entrada: así sus listeners no se acumulan al cambiar de método.
+    const raiz = el('div', { className: 'span mixto' });
+    raiz.innerHTML =
+        `<div class="pago-monto"><small>Total a cubrir</small><strong>${usd(t.total)} / ${bs(t.totalBs)}</strong></div>` +
+        `<div id="mxRestante" class="pago-monto pago-restante" data-estado="falta"><small></small><strong></strong></div>` +
+        `<div id="mxLineas" class="mx-lineas"></div>` +
+        `<button id="mxAgregar" class="btn btn-ghost" type="button"><i class="fas fa-plus"></i> Agregar otro pago</button>`;
+    cont.replaceChildren(raiz);
+
+    const lineaDe = (nodo) => {
+        const fila = nodo.closest('.pago-linea');
+        return fila ? state.pagosMixtos.find((x) => x.id === Number(fila.dataset.id)) : null;
+    };
+
+    raiz.addEventListener('input', (e) => {
+        const campo = e.target.dataset.campo;
+        const l = campo ? lineaDe(e.target) : null;
+        if (!l) return;
+        if (campo === 'referencia') {
+            e.target.value = l.metodo === 'PM' ? soloDigitos(e.target.value) : e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        }
+        const monedaAntes = monedaLinea(l);
+        l[campo] = e.target.value;
+        $('#pagoError').hidden = true;
+        if (campo === 'metodo') { l.banco = ''; l.referencia = ''; l.obs = ''; }
+        if (campo === 'metodo' || campo === 'otraMoneda') {
+            if (monedaLinea(l) !== monedaAntes) l.monto = ''; // el monto ya no está en la misma moneda
+            pintarLineasMixto();
+        } else {
+            actualizarMixto();
+        }
+    });
+
+    raiz.addEventListener('click', (e) => {
+        if (e.target.closest('#mxAgregar')) {
+            if (state.pagosMixtos.length >= MIXTO_MAX) return;
+            const l = nuevaLineaMixto('PM');
+            state.pagosMixtos.push(l);
+            pintarLineasMixto();
+            $(`#mx-${l.id}-monto`)?.focus();
+            return;
+        }
+        const l = lineaDe(e.target);
+        if (!l) return;
+        if (e.target.closest('[data-quitar]')) {
+            state.pagosMixtos = state.pagosMixtos.filter((x) => x !== l);
+            pintarLineasMixto();
+        } else if (e.target.closest('[data-completar]')) {
+            completarLineaMixto(l);
+            pintarLineasMixto();
+        }
+    });
+
+    pintarLineasMixto();
+}
+
+/** Valida el pago combinado. Devuelve { pago } o { error, campo }. */
+function leerMixto(pago) {
+    const L = state.pagosMixtos;
+    if (L.length < 2) return { error: 'Agrega al menos dos pagos. Si es un solo método, elígelo directamente.' };
+    const pagos = [];
+    for (const [i, l] of L.entries()) {
+        const id = (c) => `mx-${l.id}-${c}`;
+        const n = i + 1;
+        const p = { metodo: l.metodo, moneda: monedaLinea(l), monto: 0, banco: 'N/A', referencia: 'N/A', observaciones: l.obs.trim() };
+        if (l.monto === '') return { error: `Pago ${n}: ingresa el monto.`, campo: id('monto') };
+        const monto = Number(l.monto);
+        if (!Number.isFinite(monto) || monto <= 0) return { error: `Pago ${n}: el monto no es válido.`, campo: id('monto') };
+        p.monto = round2(monto);
+
+        if (l.metodo === 'PM') {
+            if (!l.banco) return { error: `Pago ${n}: selecciona el banco destino.`, campo: id('banco') };
+            if (!l.referencia) return { error: `Pago ${n}: ingresa el número de referencia.`, campo: id('referencia') };
+            if (!/^\d{4,12}$/.test(l.referencia)) return { error: `Pago ${n}: la referencia debe tener entre 4 y 12 dígitos.`, campo: id('referencia') };
+            p.banco = l.banco;
+            p.referencia = l.referencia;
+        } else if (l.metodo === 'ZELLE' || l.metodo === 'BINANCE') {
+            if (!l.referencia) {
+                return { error: `Pago ${n}: ${l.metodo === 'ZELLE' ? 'ingresa el número de confirmación' : 'ingresa el ID de orden o referencia'}.`, campo: id('referencia') };
+            }
+            if (!/^[A-Z0-9]{4,30}$/.test(l.referencia)) return { error: `Pago ${n}: la referencia debe tener entre 4 y 30 letras o números.`, campo: id('referencia') };
+            p.referencia = l.referencia;
+        } else if (l.metodo === 'OTROS' && !p.observaciones) {
+            return { error: `Pago ${n}: describe el método de pago en las observaciones.`, campo: id('obs') };
+        }
+        pagos.push(p);
+    }
+
+    if (L.some((l) => METODOS_USD.has(l.metodo))) {
+        pago.aplicar_descuento = state.descuentoUsd;
+        if (state.descuentoUsd) {
+            if (!(state.tasaUsdt > 0)) return { error: 'Ingresa la tasa USDT o desactiva el descuento.', campo: 'tasaUsdt' };
+            if (state.tasaUsdt > state.tasa * 2) return { error: 'La tasa USDT parece incorrecta (más del doble de la tasa BCV).', campo: 'tasaUsdt' };
+            pago.tasa_usdt = state.tasaUsdt;
+        }
+    }
+
+    const rest = restanteMixto();
+    const tol = toleranciaMixto(L.length);
+    const ultimo = `mx-${L[L.length - 1].id}-monto`;
+    if (rest > tol) return { error: `Falta por cubrir ${usd(rest)} (${bs(round2(rest * state.tasa))}). Ajusta los montos.`, campo: ultimo };
+    if (rest < -tol) return { error: `Los pagos superan el total por ${usd(-rest)}. Ajusta los montos.`, campo: ultimo };
+
+    pago.pagos = pagos;
     return { pago };
 }
 
