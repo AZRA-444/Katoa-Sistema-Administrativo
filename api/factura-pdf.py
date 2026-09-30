@@ -17,6 +17,7 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
 import _whatsapp as wa  # noqa: E402
+from _factura_pdf import DOC_ARCHIVO  # noqa: E402
 
 ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
 TELEFONO_RE = re.compile(r"^\+?\d{10,15}$")
@@ -55,7 +56,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Length", str(len(pdf)))
-        self.send_header("Content-Disposition", f'inline; filename="Factura-{id_factura}.pdf"')
+        self.send_header("Content-Disposition", f'inline; filename="{DOC_ARCHIVO}-{id_factura}.pdf"')
         self.send_header("Cache-Control", "private, no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()

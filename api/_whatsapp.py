@@ -13,6 +13,7 @@ import sys
 import requests
 
 import _comun as c
+from _factura_pdf import DOC_ARCHIVO, DOC_NOMBRE
 
 BOT_URL = os.environ.get("WHATSAPP_BOT_URL", "").rstrip("/")
 BOT_KEY = os.environ.get("WHATSAPP_BOT_KEY", "")
@@ -63,7 +64,7 @@ def configurado():
 
 def leyenda(id_factura, nombre=None):
     saludo = f"Hola {nombre}, gracias" if nombre else "Gracias"
-    return f"{saludo} por tu compra en Corporación Katoa Global. Adjuntamos tu factura N.º {id_factura}."
+    return f"{saludo} por tu compra en Corporación Katoa Global. Adjuntamos tu {DOC_NOMBRE} N.º {id_factura}."
 
 
 def enviar_pdf(telefono, id_factura, pdf, nombre=None):
@@ -79,7 +80,7 @@ def enviar_pdf(telefono, id_factura, pdf, nombre=None):
             f"{BOT_URL}/send-document",
             json={
                 "to": telefono,
-                "filename": f"Factura-{id_factura}.pdf",
+                "filename": f"{DOC_ARCHIVO}-{id_factura}.pdf",
                 "pdf_base64": base64.b64encode(pdf).decode("ascii"),
                 "caption": leyenda(id_factura, nombre),
             },

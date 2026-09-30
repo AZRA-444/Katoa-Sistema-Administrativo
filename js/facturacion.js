@@ -689,8 +689,8 @@ async function finalizarCompra() {
 
 //--- 5. FACTURA LISTA: WhatsApp o impresión ---//
 const AVISOS_WA = {
-    enviado: ['ok', 'La factura se envió por WhatsApp al cliente.'],
-    sin_whatsapp: ['warn', 'Este número no tiene WhatsApp. Imprime la factura en formato carta.'],
+    enviado: ['ok', 'La nota de entrega se envió por WhatsApp al cliente.'],
+    sin_whatsapp: ['warn', 'Este número no tiene WhatsApp. Imprime la nota de entrega en formato carta.'],
     no_disponible: ['warn', 'No se pudo enviar por WhatsApp en este momento.'],
     no_configurado: ['warn', 'El envío por WhatsApp no está configurado.'],
 };

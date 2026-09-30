@@ -1,4 +1,4 @@
-"""Genera el PDF de una factura en tamaño CARTA (8,5 × 11 pulgadas).
+"""Genera el PDF del documento (nota de entrega) en tamaño CARTA (8,5 × 11 pulgadas).
 
 El prefijo "_" hace que Vercel NO lo exponga como endpoint.
 El mismo PDF sirve para WhatsApp y para imprimir: el navegador lo abre y se manda a la impresora.
@@ -15,6 +15,11 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+# ── Nombre del documento: se cambia SOLO AQUÍ y se refleja en el PDF, el nombre del archivo y el mensaje de WhatsApp ──
+DOC_TITULO = "NOTA DE ENTREGA"        # encabezado grande del PDF
+DOC_NOMBRE = "nota de entrega"        # en frases: "Adjuntamos tu nota de entrega..."
+DOC_ARCHIVO = "Nota-de-entrega"       # prefijo del archivo: Nota-de-entrega-<id>.pdf
 
 # Datos de la empresa (se pueden cambiar con variables de entorno en Vercel).
 EMPRESA = os.environ.get("EMPRESA_NOMBRE", "Corporación Katoa Global")
@@ -99,7 +104,7 @@ def generar_pdf(factura, detalles):
     doc = SimpleDocTemplate(
         buf, pagesize=letter,
         leftMargin=0.75 * inch, rightMargin=0.75 * inch, topMargin=0.7 * inch, bottomMargin=1.0 * inch,
-        title=f"Factura {factura['id_factura']}", author=EMPRESA,
+        title=f"{DOC_TITULO.capitalize()} {factura['id_factura']}", author=EMPRESA,
     )
     ancho = letter[0] - doc.leftMargin - doc.rightMargin
     historia = []
@@ -110,7 +115,7 @@ def generar_pdf(factura, detalles):
         if linea:
             datos_empresa.append(Paragraph(_e(linea), s["peq"]))
     datos_factura = [
-        Paragraph("FACTURA", s["titulo"]),
+        Paragraph(DOC_TITULO, s["titulo"]),
         Paragraph(f"N.º {_e(factura['id_factura'])}", s["der"]),
         Paragraph(_fecha(), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
     ]
