@@ -115,6 +115,18 @@
             Auth.usuario = datos.usuario;
             Auth.debeCambiarClave = !!datos.debe_cambiar_clave;
 
+            // Clave temporal: solo se puede estar en la pantalla de cambio (el servidor también lo exige:
+            // el resto de /api responde 403 hasta que la cambie).
+            const enCambioClave = location.pathname.endsWith('/cambiar-clave.html');
+            if (Auth.debeCambiarClave && !enCambioClave) {
+                location.replace('/cambiar-clave.html');
+                return null;
+            }
+            if (!Auth.debeCambiarClave && enCambioClave) {
+                location.replace('/index.html');
+                return null;
+            }
+
             await domListo;
             Auth.aplicarPermisos();
             mostrarPagina();

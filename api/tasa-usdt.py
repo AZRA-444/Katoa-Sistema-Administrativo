@@ -17,17 +17,6 @@ FUENTE_URL = "https://ve.dolarapi.com/v1/dolares/paralelo"
 MSG_NO_DISPONIBLE = "No se pudo consultar la tasa USDT. Escríbela a mano."
 
 
-def _sesion_activa(h):
-    access = c.leer_cookies(h).get(c.COOKIE_ACCESS)
-    if not access:
-        return False
-    usuario = c.auth_usuario(access)
-    if not usuario:
-        return False
-    perfil = c.obtener_perfil(usuario["id"])
-    return bool(perfil and perfil.get("activo"))
-
-
 def _error(h, status, mensaje):
     c.responder(h, status, {"status": "error", "message": mensaje})
 
@@ -60,7 +49,7 @@ class handler(BaseHTTPRequestHandler):
         if not c.origen_valido(self):
             return _error(self, 403, "Origen no permitido.")
         try:
-            if not _sesion_activa(self):
+            if not c.sesion_activa(self):
                 return _error(self, 401, "Sesión expirada.")
             return c.responder(self, 200, {"status": "ok", **consultar_tasa()})
         except c.ErrorPeticion as e:

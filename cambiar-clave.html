@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#BE6E41">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="assets/css/global.css">
+    <link rel="stylesheet" href="assets/css/login.css">
+    <script src="js/auth-guard.js"></script>
+    <title>Cambiar contraseña — Katoa</title>
+</head>
+
+<body>
+    <div class="login-shell">
+        <aside class="login-brand">
+            <div class="brand-mark">Katoa</div>
+            <div class="brand-sub">Corporación Katoa Global</div>
+            <p class="brand-lead">Gestión clara para el trabajo de cada día.</p>
+        </aside>
+
+        <main>
+            <form class="main-container" id="claveForm" novalidate>
+                <div class="header-content">
+                    <h1>Crea tu contraseña</h1>
+                    <p>Por seguridad, debes reemplazar la contraseña temporal antes de continuar.</p>
+                </div>
+
+                <div class="form-container">
+                    <div class="field">
+                        <label for="claveActual">Contraseña actual</label>
+                        <input type="password" id="claveActual" name="password_actual" autocomplete="current-password" required autofocus>
+                    </div>
+
+                    <div class="field">
+                        <label for="claveNueva">Contraseña nueva</label>
+                        <input type="password" id="claveNueva" name="password_nueva" autocomplete="new-password" minlength="10" maxlength="72" required>
+                        <p class="form-hint">Mínimo 10 caracteres, con letras y números.</p>
+                    </div>
+
+                    <div class="field">
+                        <label for="claveRepetida">Repite la contraseña nueva</label>
+                        <input type="password" id="claveRepetida" name="password_repetida" autocomplete="new-password" maxlength="72" required>
+                    </div>
+                </div>
+
+                <p id="claveError" class="form-error" role="alert" hidden></p>
+
+                <div class="footer-content">
+                    <button type="submit" class="primary-btn" id="claveBoton">Guardar contraseña</button>
+                    <button type="button" class="link-btn" id="claveSalir">Cerrar sesión</button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script src="js/cambiar-clave.js"></script>
+</body>
+
+</html>

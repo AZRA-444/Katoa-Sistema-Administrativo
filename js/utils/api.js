@@ -12,6 +12,13 @@ const ENDPOINTS = {
 
 const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
 
+// 403 puede ser «sin permiso» o «debes cambiar tu contraseña»: /api/sesion lo distingue.
+const clavePendiente = () =>
+    fetch(ENDPOINTS.sesion, { credentials: 'same-origin', cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => !!d?.debe_cambiar_clave)
+        .catch(() => false);
+
 // El access token dura ~1 h; /api/sesion lo renueva con el refresh token.
 const renovarSesion = () =>
     fetch(ENDPOINTS.sesion, { credentials: 'same-origin', cache: 'no-store' }).then((r) => r.ok).catch(() => false);
@@ -24,6 +31,10 @@ async function request(url, opciones = {}, reintentar = true) {
         if (reintentar && (await renovarSesion())) return request(url, opciones, false);
         irALogin();
         throw new Error('Sesión expirada');
+    }
+    if (r.status === 403 && (await clavePendiente())) {
+        location.replace('/cambiar-clave.html');
+        throw new Error('Debes cambiar tu contraseña antes de continuar.');
     }
     return r;
 }

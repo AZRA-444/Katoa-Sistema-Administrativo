@@ -36,6 +36,10 @@ MAX_FALLOS_IP = 20
 TIMEOUT = 8
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,}$")
 
+# Reintentos SOLO para lecturas (GET/HEAD). Un POST que recibe 502/503/504 pudo haberse ejecutado ya en
+# Supabase (el gateway falla después del commit): reintentarlo duplicaría movimientos de stock, llegadas
+# o productos. Los errores de CONEXIÓN (la petición nunca salió) sí se reintentan con seguridad en
+# cualquier método: urllib3 solo reintenta lecturas fallidas en métodos idempotentes.
 _http = requests.Session()
 _http.mount(
     "https://",
@@ -44,7 +48,7 @@ _http.mount(
             total=3,
             backoff_factor=0.4,
             status_forcelist=(502, 503, 504),
-            allowed_methods=frozenset(["GET", "POST"]),
+            allowed_methods=frozenset(["GET", "HEAD"]),
             raise_on_status=False,
         )
     ),
@@ -116,17 +120,27 @@ def auth_usuario(access_token):
     return r.json() if r.status_code == 200 else None
 
 
-def auth_logout(access_token):
-    """Revoca la sesión actual. Mejor esfuerzo: nunca lanza excepción."""
+def auth_logout(access_token, scope="local"):
+    """Revoca la sesión ('local') o todas las demás ('others'). Mejor esfuerzo: nunca lanza excepción."""
     try:
         _http.post(
             f"{SUPABASE_URL}/auth/v1/logout",
-            params={"scope": "local"},
+            params={"scope": scope},
             headers=_hdr_anon(access_token),
             timeout=TIMEOUT,
         )
     except requests.RequestException:
         pass
+
+
+def auth_cambiar_password(access_token, nueva):
+    """Cambia la contraseña del usuario dueño del token (PUT /auth/v1/user)."""
+    return _http.put(
+        f"{SUPABASE_URL}/auth/v1/user",
+        json={"password": nueva},
+        headers=_hdr_anon(access_token),
+        timeout=TIMEOUT,
+    )
 
 
 # ── Perfiles e intentos de login (service role) ─────────────────────────────
@@ -140,6 +154,18 @@ def obtener_perfil(uid):
     r.raise_for_status()
     filas = r.json()
     return filas[0] if filas else None
+
+
+def marcar_clave_cambiada(uid):
+    """Apaga perfiles.debe_cambiar_clave. Idempotente (por eso se puede repetir sin riesgo)."""
+    r = _http.patch(
+        f"{SUPABASE_URL}/rest/v1/perfiles",
+        params={"id": f"eq.{uid}"},
+        json={"debe_cambiar_clave": False},
+        headers=_hdr_servicio({"Prefer": "return=minimal"}),
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
 
 
 def contar_fallos(campo, valor):
@@ -266,22 +292,18 @@ def leer_cookies(h):
         return {}
     return {k: v.value for k, v in sc.items()}
 
-# ── Sesión activa (para endpoints que solo necesitan saber si hay un usuario válido) ──
-def sesion_activa(h):
-    access = leer_cookies(h).get(COOKIE_ACCESS)
-    if not access:
-        return False
-    usuario = auth_usuario(access)
-    if not usuario:
-        return False
-    perfil = obtener_perfil(usuario["id"])
-    return bool(perfil and perfil.get("activo"))
 # ── Usuario de la sesión con su rol (inventario y trazabilidad del kardex) ──
 NIVELES = {"personal": 1, "encargado": 2, "admin": 3, "sysadmin": 4}
+MSG_CAMBIAR_CLAVE = "Debes cambiar tu contraseña antes de continuar."
 
 
-def usuario_sesion(h):
-    """{'id','nombre','rol'} del usuario con sesión válida y activo; None si no hay."""
+def usuario_sesion(h, permitir_cambio_pendiente=False):
+    """{'id','email','nombre','rol'} del usuario con sesión válida y activo; None si no hay sesión.
+
+    Si el perfil tiene `debe_cambiar_clave`, TODO endpoint protegido responde 403 (ErrorPeticion) hasta
+    que cambie la contraseña: así la regla se cumple en el servidor y no depende de que el navegador
+    redirija. Solo /api/cambiar-clave pasa permitir_cambio_pendiente=True.
+    """
     access = leer_cookies(h).get(COOKIE_ACCESS)
     if not access:
         return None
@@ -291,7 +313,19 @@ def usuario_sesion(h):
     perfil = obtener_perfil(u["id"])
     if not (perfil and perfil.get("activo")):
         return None
-    return {"id": u["id"], "nombre": perfil.get("nombre"), "rol": str(perfil.get("rol") or "").lower()}
+    if perfil.get("debe_cambiar_clave") and not permitir_cambio_pendiente:
+        raise ErrorPeticion(403, MSG_CAMBIAR_CLAVE)
+    return {
+        "id": u["id"],
+        "email": u.get("email"),
+        "nombre": perfil.get("nombre"),
+        "rol": str(perfil.get("rol") or "").lower(),
+    }
+
+
+def sesion_activa(h):
+    """True si hay un usuario válido y activo (para endpoints que no necesitan su rol)."""
+    return usuario_sesion(h) is not None
 
 
 def es_admin(usuario):

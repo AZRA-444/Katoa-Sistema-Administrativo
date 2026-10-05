@@ -109,3 +109,8 @@ main { display: flex; align-items: center; justify-content: center; padding: 28p
   .main-container { max-width: 460px; padding: 2.75rem 2.5rem; }
   .login-brand { padding: 96px; }
 }
+
+/* Cambio de contraseña obligatorio (cambiar-clave.html) */
+.form-hint { margin-top: .35rem; font-size: .8rem; color: var(--muted); }
+.link-btn { display: block; margin: 1rem auto 0; padding: .4rem .6rem; background: none; border: 0; font: inherit; font-size: .85rem; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.link-btn:hover { color: var(--terracota-700); }

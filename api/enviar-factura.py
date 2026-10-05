@@ -6,7 +6,12 @@ Seguridad:
   - Exige sesión activa (cookie HttpOnly creada por /api/login) y comprueba el origen.
   - Valida todos los campos y RECALCULA el total en el servidor;
     si no coinciden con lo que envió el navegador, rechaza la factura.
-  - Sube el comprobante (JPEG) al bucket `comprobantes` desde el servidor.
+  - Contrasta con datos del servidor lo que el navegador NO debe decidir (verificar_servidor):
+      · precios: los de lista del inventario según la cantidad (solo admin/sysadmin pueden cambiarlos);
+      · tasas: BCV y USDT frente a la fuente de referencia (desvío máximo configurable);
+      · vendedor: el usuario autenticado, no el texto que llega del navegador.
+  - Sube el comprobante (JPEG) al bucket `comprobantes` DESPUÉS de guardar la factura y sin sobrescribir
+    nunca uno existente (así un id reutilizado no puede pisar el comprobante original).
 
 Después de guardar:
   - Genera el PDF (tamaño carta), lo archiva en el bucket `facturas` y lo envía por WhatsApp
@@ -19,6 +24,7 @@ import binascii
 import os
 import re
 import sys
+import time
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler
 
@@ -26,6 +32,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _referencias as ref  # noqa: E402
 import _whatsapp as wa  # noqa: E402
 from _factura_pdf import generar_pdf  # noqa: E402
 
@@ -50,6 +57,39 @@ REFERENCIA_RE = re.compile(r"^\d{4,12}$")
 REFERENCIA_DIGITAL_RE = re.compile(r"^[A-Z0-9]{4,30}$")  # Zelle / Binance
 
 MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
+MSG_COMPROBANTE = ("La factura se guardó, pero no se pudo subir el comprobante. "
+                   "Pulsa «Finalizar» de nuevo para reintentar solo el comprobante.")
+
+# Un 23505 (unique_violation) solo significa «factura duplicada» si el conflicto es sobre el id de la factura.
+RE_DUPLICADO_FACTURA = re.compile(r"id_factura|facturas?_\w*(pkey|key)", re.IGNORECASE)
+
+
+def _entero_env(nombre, defecto):
+    try:
+        return int(os.environ.get(nombre, ""))
+    except ValueError:
+        return defecto
+
+
+# Tiempo total de la función. DEBE ser menor o igual que "maxDuration" de api/enviar-factura.py en vercel.json.
+MAX_SEGUNDOS = _entero_env("FUNCION_MAX_SEGUNDOS", 30)
+MARGEN_SEGUNDOS = 3  # reserva para responder antes de que Vercel corte la función
+
+
+class _Presupuesto:
+    """Tiempo que le queda a la petición. La factura ya está guardada cuando empieza el PDF y WhatsApp,
+    así que esas etapas se acortan u omiten antes que dejar que Vercel mate la función."""
+
+    def __init__(self, total=MAX_SEGUNDOS, margen=MARGEN_SEGUNDOS):
+        self.fin = time.monotonic() + total - margen
+
+    def restante(self):
+        return self.fin - time.monotonic()
+
+    def timeout(self, maximo, minimo=1.5):
+        """Timeout para la próxima llamada externa, o None si ya no queda tiempo útil."""
+        r = self.restante()
+        return None if r < minimo else min(maximo, r)
 
 
 # ── Validación ──────────────────────────────────────────────────────────────
@@ -324,30 +364,131 @@ def validar(p):
     return factura, detalles, comprobante
 
 
-# ── Sesión y Supabase ───────────────────────────────────────────────────────
-def _sesion_activa(h):
-    access = c.leer_cookies(h).get(c.COOKIE_ACCESS)
-    if not access:
-        return False
-    usuario = c.auth_usuario(access)
-    if not usuario:
-        return False
-    perfil = c.obtener_perfil(usuario["id"])
-    return bool(perfil and perfil.get("activo"))
+# ── Verificación contra datos del servidor ──────────────────────────────────
+def tasa_usdt_usada(p):
+    """Tasa USDT que el pago aplica de verdad (None si no hay descuento en dólares).
+    Se llama después de validar(): los tipos ya están comprobados."""
+    if p.get("aplicar_descuento") is not True:
+        return None
+    metodo = p.get("metodo_pago")
+    pagos = p.get("pagos") if isinstance(p.get("pagos"), list) else []
+    en_dolares = metodo in METODOS_USD or (
+        metodo == "MIXTO" and any(isinstance(x, dict) and x.get("metodo") in METODOS_USD for x in pagos)
+    )
+    if not en_dolares:
+        return None
+    try:
+        return Decimal(str(p.get("tasa_usdt")))
+    except InvalidOperation:
+        return None
+
+
+def _verificar_precios(detalles, usuario):
+    """El vendedor no decide el precio: el de lista sale del inventario según la cantidad (escala detal /
+    mayor / gran mayor). Solo admin y sysadmin pueden vender con precios distintos."""
+    if c.es_admin(usuario):
+        return
+    descuento = ref.descuento_max_pct()
+    solo_inventario = not ref.env_bool("PERMITIR_SIN_INVENTARIO", True)
+    ids = []
+    for i, d in enumerate(detalles, 1):
+        idinv = d["id_inventario"]
+        if idinv is None:
+            if solo_inventario:
+                _err(f"Producto {i}: solo se pueden facturar productos del inventario.")
+            continue
+        if not 0 < idinv <= 2_147_483_647:
+            _err(f"Producto {i}: id de inventario inválido.")
+        ids.append(idinv)
+    fichas = ref.catalogo(ids)
+    for i, d in enumerate(detalles, 1):
+        if d["id_inventario"] is None:
+            continue
+        ficha = fichas.get(d["id_inventario"])
+        if ficha is None:
+            _err(f"Producto {i}: ya no existe o está inactivo en el inventario. Quítalo y vuelve a agregarlo.")
+        cantidad = Decimal(str(d["cantidad"]))
+        minimo = _r2(ref.precio_de_lista(ficha, cantidad) * (Decimal(100) - descuento) / 100)
+        if Decimal(str(d["precio_unitario"])) < minimo:
+            _err(f"Producto {i} ({d['nombre_producto'][:40]}): el precio ${d['precio_unitario']:.2f} está por debajo "
+                 f"del precio de lista (${minimo:.2f}). Solo un administrador puede cambiar precios.")
+
+
+def _verificar_tasas(p, factura):
+    """Las tasas las escribe o corrige el vendedor: se comparan con la fuente de referencia.
+    Si la fuente no responde se acepta la enviada (hay ventas que no pueden esperar), pero queda en el log."""
+    tol = ref.tolerancia_pct()
+    if tol <= 0:
+        return
+    tasa = Decimal(str(factura["tasa_cambio"]))
+    r = ref.tasa_bcv()
+    if r is None:
+        print("[enviar-factura] sin tasa de referencia BCV: se acepta la enviada", file=sys.stderr)
+    elif abs(tasa - r) * 100 / r > tol:
+        _err(f"La tasa de cambio ({tasa:.2f}) se aleja demasiado de la tasa de referencia ({r:.2f}). "
+             "Actualízala e inténtalo de nuevo.")
+    usdt = tasa_usdt_usada(p)
+    if usdt is None:
+        return
+    ru = ref.tasa_usdt()
+    if ru is None:
+        print("[enviar-factura] sin tasa USDT de referencia: se acepta la enviada", file=sys.stderr)
+    elif usdt > ru * (1 + tol / 100):  # una tasa USDT alta = más descuento; una baja no perjudica a la tienda
+        _err(f"La tasa USDT ({usdt:.2f}) es demasiado alta frente a la de referencia ({ru:.2f}). "
+             "Revísala e inténtalo de nuevo.")
+
+
+def verificar_servidor(p, factura, detalles, usuario):
+    """Contrasta con datos propios del servidor lo que el navegador no debe decidir.
+    Modifica `factura` (vendedor) y lanza ErrorPeticion si algo no cuadra."""
+    if not ref.env_bool("VENDEDOR_LIBRE", False) and usuario.get("nombre"):
+        factura["vendedor"] = str(usuario["nombre"]).strip()[:60] or factura["vendedor"]
+    _verificar_precios(detalles, usuario)
+    _verificar_tasas(p, factura)
+
+
+# ── Supabase ────────────────────────────────────────────────────────────────
+def _ruta_comprobante(id_factura):
+    return f"{id_factura}.jpg"  # id_factura ya pasó ID_RE: solo letras, números y guiones
+
+
+def _ya_existe(r):
+    t = r.text.lower()
+    return r.status_code == 409 or "duplicate" in t or "already exists" in t
 
 
 def _subir_comprobante(id_factura, datos):
-    ruta = f"{id_factura}.jpg"
-    r = c._http.post(
-        f"{c.SUPABASE_URL}/storage/v1/object/{BUCKET}/{ruta}",
-        data=datos,
-        headers=c._hdr_servicio({"Content-Type": "image/jpeg", "x-upsert": "true"}),  # upsert: reintentos seguros
-        timeout=c.TIMEOUT * 2,
-    )
-    if r.status_code not in (200, 201):
-        print(f"[enviar-factura] storage {r.status_code}: {r.text[:300]}", file=sys.stderr)
-        _err("No se pudo guardar el comprobante. Intenta de nuevo.", 502)
-    return ruta
+    """Sube el comprobante cuando la factura YA está guardada y sin sobrescribir (x-upsert=false).
+
+    · Si el objeto ya existe es un reintento (o un id reutilizado): se conserva el original, nunca se pisa.
+    · Si falla, se responde 502 con MSG_COMPROBANTE: al reintentar, la factura sale «duplicada» y solo se
+      repite esta subida (el id de la factura se conserva en el navegador entre reintentos).
+    """
+    try:
+        r = c._http.post(
+            f"{c.SUPABASE_URL}/storage/v1/object/{BUCKET}/{_ruta_comprobante(id_factura)}",
+            data=datos,
+            headers=c._hdr_servicio({"Content-Type": "image/jpeg", "x-upsert": "false"}),
+            timeout=c.TIMEOUT * 2,
+        )
+    except requests.RequestException as e:
+        print(f"[enviar-factura] storage inalcanzable ({id_factura}): {e!r}", file=sys.stderr)
+        _err(MSG_COMPROBANTE, 502)
+    if r.status_code in (200, 201):
+        return
+    if _ya_existe(r):
+        print(f"[enviar-factura] comprobante de {id_factura} ya existía: se conserva el original", file=sys.stderr)
+        return
+    print(f"[enviar-factura] storage {r.status_code} ({id_factura}): {r.text[:300]}", file=sys.stderr)
+    _err(MSG_COMPROBANTE, 502)
+
+
+def _cuerpo_error(r):
+    try:
+        d = r.json()
+    except ValueError:
+        return {}
+    return d if isinstance(d, dict) else {}
 
 
 def _guardar(factura, detalles, usuario_id):
@@ -363,22 +504,45 @@ def _guardar(factura, detalles, usuario_id):
     stock = re.search(r'stock_insuficiente:([^"\\]+)', r.text)
     if stock:
         _err(f"Stock insuficiente: {stock.group(1).strip()}. Ajusta la cantidad e inténtalo de nuevo.", 409)
-    if r.status_code == 409 or '"23505"' in r.text:
-        return "duplicada"  # misma id_factura: el envío anterior sí se guardó
+
+    # PostgREST responde 409 tanto a un duplicado (23505) como a una clave foránea rota (23503):
+    # solo el duplicado DEL ID DE FACTURA es un reintento ya guardado; lo demás es un error real.
+    cuerpo = _cuerpo_error(r)
+    codigo = str(cuerpo.get("code") or "")
+    texto = " ".join(str(cuerpo.get(k) or "") for k in ("message", "details", "hint"))
+    if codigo == "23505":
+        if RE_DUPLICADO_FACTURA.search(texto):
+            return "duplicada"  # misma id_factura: el envío anterior sí se guardó
+        _err("Ya existe un registro con alguno de estos datos. Revisa la factura e inténtalo de nuevo.", 409)
+    if codigo == "23503":
+        _err("Un producto de la factura ya no existe en el inventario. "
+             "Quítalo, vuelve a agregarlo e inténtalo de nuevo.", 409)
+    if codigo in ("23502", "23514", "22003", "22P02"):
+        _err("Algún dato de la factura no cumple las reglas del sistema. Revísalo e inténtalo de nuevo.", 400)
     _err("No se pudo guardar la factura. Intenta de nuevo o avisa al administrador.", 502)
 
 
-def _pdf_y_whatsapp(factura, detalles, enviar):
+def _pdf_y_whatsapp(factura, detalles, enviar, presupuesto):
     """Mejor esfuerzo: la factura ya está guardada, nada de esto debe hacerla fallar.
-    Devuelve (pdf_guardado: bool, estado_whatsapp: str|None)."""
+    Cada llamada externa se acota al tiempo que queda (presupuesto); si no queda, se omite y el navegador
+    ofrece reintentar. Devuelve (pdf_guardado: bool, estado_whatsapp: str|None)."""
     id_factura = factura["id_factura"]
     try:
         if not enviar:  # reintento de una factura duplicada: solo asegurar que el PDF exista
-            return (wa.descargar_pdf(id_factura) is not None
-                    or wa.subir_pdf(id_factura, generar_pdf(factura, detalles))), None
+            t = presupuesto.timeout(c.TIMEOUT * 2)
+            if t is None:
+                return False, None
+            if wa.descargar_pdf(id_factura, timeout=t) is not None:
+                return True, None
+            t = presupuesto.timeout(c.TIMEOUT * 2)
+            return (wa.subir_pdf(id_factura, generar_pdf(factura, detalles), timeout=t) if t else False), None
         pdf = generar_pdf(factura, detalles)
-        guardado = wa.subir_pdf(id_factura, pdf)
-        return guardado, wa.enviar_pdf(factura["telefono"], id_factura, pdf, factura["nombre"])
+        t = presupuesto.timeout(c.TIMEOUT * 2)
+        guardado = wa.subir_pdf(id_factura, pdf, timeout=t) if t else False
+        t = presupuesto.timeout(wa.TIMEOUT_BOT[1], minimo=3)
+        whatsapp = (wa.enviar_pdf(factura["telefono"], id_factura, pdf, factura["nombre"], timeout=t)
+                    if t else wa.NO_DISPONIBLE)
+        return guardado, whatsapp
     except Exception as e:  # noqa: BLE001
         print(f"[enviar-factura] pdf/whatsapp: {e!r}", file=sys.stderr)
         return False, wa.NO_DISPONIBLE if enviar else None
@@ -390,6 +554,7 @@ def _error(h, status, mensaje):
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        presupuesto = _Presupuesto()
         if not c.config_completa():
             return _error(self, 500, "Configuración del servidor incompleta.")
         if not c.origen_valido(self):
@@ -400,20 +565,23 @@ class handler(BaseHTTPRequestHandler):
                 return _error(self, 401, "Sesión expirada. Inicia sesión de nuevo.")
             datos = c.leer_json(self, MAX_BODY)
             factura, detalles, comprobante = validar(datos)
+            verificar_servidor(datos, factura, detalles, usuario)
             if comprobante:
-                factura["comprobante_path"] = _subir_comprobante(factura["id_factura"], comprobante)
+                factura["comprobante_path"] = _ruta_comprobante(factura["id_factura"])
             estado = _guardar(factura, detalles, usuario["id"])
+            if comprobante:  # después de guardar: un fallo aquí nunca deja un archivo huérfano
+                _subir_comprobante(factura["id_factura"], comprobante)
         except c.ErrorPeticion as e:
             return _error(self, e.status, e.mensaje)
         except (requests.RequestException, RuntimeError):
             return _error(self, 503, MSG_NO_DISPONIBLE)
 
         if estado == "duplicada":
-            pdf_ok, _ = _pdf_y_whatsapp(factura, detalles, enviar=False)  # no se reenvía por WhatsApp
+            pdf_ok, _ = _pdf_y_whatsapp(factura, detalles, False, presupuesto)  # no se reenvía por WhatsApp
             return c.responder(self, 409, {
                 "status": "duplicada", "message": "Esta factura ya estaba registrada.", "pdf": pdf_ok,
             })
-        pdf_ok, whatsapp = _pdf_y_whatsapp(factura, detalles, enviar=True)
+        pdf_ok, whatsapp = _pdf_y_whatsapp(factura, detalles, True, presupuesto)
         return c.responder(
             self, 200,
             {

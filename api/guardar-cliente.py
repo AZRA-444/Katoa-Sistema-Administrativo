@@ -41,17 +41,6 @@ def _texto(valor, nombre, maximo, obligatorio=True):
     return valor
 
 
-def _sesion_activa(h):
-    access = c.leer_cookies(h).get(c.COOKIE_ACCESS)
-    if not access:
-        return False
-    usuario = c.auth_usuario(access)
-    if not usuario:
-        return False
-    perfil = c.obtener_perfil(usuario["id"])
-    return bool(perfil and perfil.get("activo"))
-
-
 def _error(h, status, mensaje):
     c.responder(h, status, {"status": "error", "message": mensaje})
 
@@ -64,7 +53,7 @@ class handler(BaseHTTPRequestHandler):
         if not c.origen_valido(self):
             return _error(self, 403, "Origen no permitido.")
         try:
-            if not _sesion_activa(self):
+            if not c.sesion_activa(self):
                 return _error(self, 401, "Sesión expirada.")
 
             # Extraer cédula de los parámetros (?cedula=12345678)
@@ -105,7 +94,7 @@ class handler(BaseHTTPRequestHandler):
         if not c.origen_valido(self):
             return _error(self, 403, "Origen no permitido.")
         try:
-            if not _sesion_activa(self):
+            if not c.sesion_activa(self):
                 return _error(self, 401, "Sesión expirada.")
 
             datos = c.leer_json(self, MAX_BODY)

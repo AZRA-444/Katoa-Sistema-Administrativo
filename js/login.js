@@ -68,7 +68,8 @@
             const datos = await resp.json().catch(() => ({}));
 
             if (resp.ok && datos.ok) {
-                location.replace(destinoSeguro());
+                // Clave temporal: primero se cambia (el servidor bloquea el resto hasta entonces).
+                location.replace(datos.debe_cambiar_clave ? '/cambiar-clave.html' : destinoSeguro());
                 return;
             }
 

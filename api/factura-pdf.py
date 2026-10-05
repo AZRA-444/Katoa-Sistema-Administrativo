@@ -49,6 +49,8 @@ class handler(BaseHTTPRequestHandler):
             if not ID_RE.match(id_factura):
                 return _error(self, 400, "Id de factura inválido.")
             pdf = wa.descargar_pdf(id_factura)
+        except c.ErrorPeticion as e:
+            return _error(self, e.status, e.mensaje)
         except (requests.RequestException, RuntimeError):
             return _error(self, 503, MSG_NO_DISPONIBLE)
         if pdf is None:

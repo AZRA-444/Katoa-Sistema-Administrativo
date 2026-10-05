@@ -67,6 +67,11 @@ async function api(url, cuerpo, reintentar = true) {
         location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
         throw new Error('Sesión expirada');
     }
+    if (r.status === 403 && (await fetch('/api/sesion', { credentials: 'same-origin', cache: 'no-store' })
+        .then((x) => (x.ok ? x.json() : null)).then((s) => !!s?.debe_cambiar_clave).catch(() => false))) {
+        location.replace('/cambiar-clave.html'); // clave temporal: el servidor bloquea todo hasta cambiarla
+        throw new Error('Debes cambiar tu contraseña antes de continuar.');
+    }
     const d = await r.json().catch(() => null);
     if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo completar la operación.');
     return d;

@@ -28,14 +28,15 @@ NO_CONFIGURADO = "no_configurado"
 
 
 # ── Almacén de PDF (Supabase Storage) ───────────────────────────────────────
-def subir_pdf(id_factura, pdf):
-    """Guarda el PDF. Devuelve True/False (nunca lanza: la factura ya está guardada)."""
+def subir_pdf(id_factura, pdf, timeout=None):
+    """Guarda el PDF. Devuelve True/False (nunca lanza: la factura ya está guardada).
+    `timeout` (s) permite ajustar la espera al tiempo que le queda a la función de Vercel."""
     try:
         r = c._http.post(
             f"{c.SUPABASE_URL}/storage/v1/object/{BUCKET_FACTURAS}/{id_factura}.pdf",
             data=pdf,
             headers=c._hdr_servicio({"Content-Type": "application/pdf", "x-upsert": "true"}),
-            timeout=c.TIMEOUT * 2,
+            timeout=timeout or c.TIMEOUT * 2,
         )
         if r.status_code in (200, 201):
             return True
@@ -45,12 +46,12 @@ def subir_pdf(id_factura, pdf):
     return False
 
 
-def descargar_pdf(id_factura):
+def descargar_pdf(id_factura, timeout=None):
     """Devuelve los bytes del PDF o None si no existe."""
     r = c._http.get(
         f"{c.SUPABASE_URL}/storage/v1/object/{BUCKET_FACTURAS}/{id_factura}.pdf",
         headers=c._hdr_servicio(),
-        timeout=c.TIMEOUT * 2,
+        timeout=timeout or c.TIMEOUT * 2,
     )
     if r.status_code == 200 and r.content.startswith(b"%PDF"):
         return r.content
@@ -67,14 +68,16 @@ def leyenda(id_factura, nombre=None):
     return f"{saludo} por tu compra en Corporación Katoa Global. Adjuntamos tu {DOC_NOMBRE} N.º {id_factura}."
 
 
-def enviar_pdf(telefono, id_factura, pdf, nombre=None):
+def enviar_pdf(telefono, id_factura, pdf, nombre=None, timeout=None):
     """Manda el PDF por WhatsApp. Devuelve ENVIADO | SIN_WHATSAPP | NO_DISPONIBLE | NO_CONFIGURADO.
+    `timeout` (s) acota la lectura según el tiempo restante de la función; sin él se usa TIMEOUT_BOT.
 
     Usa requests.post directo (sin reintentos automáticos): reintentar un POST
     podría entregar la factura dos veces al cliente.
     """
     if not configurado():
         return NO_CONFIGURADO
+    t_bot = TIMEOUT_BOT if timeout is None else (min(TIMEOUT_BOT[0], timeout), min(TIMEOUT_BOT[1], timeout))
     try:
         r = requests.post(
             f"{BOT_URL}/send-document",
@@ -85,7 +88,7 @@ def enviar_pdf(telefono, id_factura, pdf, nombre=None):
                 "caption": leyenda(id_factura, nombre),
             },
             headers={"x-api-key": BOT_KEY},
-            timeout=TIMEOUT_BOT,
+            timeout=t_bot,
         )
     except requests.RequestException as e:
         print(f"[whatsapp] bot inalcanzable: {e}", file=sys.stderr)
