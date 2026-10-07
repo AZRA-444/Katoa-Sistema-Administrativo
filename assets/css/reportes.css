@@ -1,0 +1,114 @@
+/* Reportes — Katoa · reutiliza global.css, facturacion.css e inventario.css */
+.rep-wrap .tabs { overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.rep-wrap .tab { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.rep-wrap .tab i { font-size: .9rem; opacity: .85; }
+
+/* Rango rápido */
+.rango-rapido { display: flex; flex-wrap: wrap; gap: 8px; }
+.rango-rapido .filtro { min-height: 40px; padding: .3rem .85rem; font-size: .84rem; }
+.tools .field.ancho { flex: 1 1 100%; }
+
+/* Tarjetas de cifras */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.kpi { display: grid; gap: 2px; align-content: start; min-width: 0; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.kpi-t { font: 600 .74rem var(--font-body); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.kpi-v { font: 600 1.5rem/1.2 var(--font-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi-s { font-size: .82rem; color: var(--muted); }
+.kpi.ok .kpi-v { color: #2F6B3B; }
+.kpi.mal .kpi-v { color: var(--danger); }
+.kpi.aviso-k .kpi-v { color: #7A4A00; }
+.kpi.destacada { background: var(--crema-soft); border-color: var(--crema); }
+
+/* Secciones */
+.rep-sec { display: grid; gap: 10px; margin-top: 24px; min-width: 0; }
+.rep-sec > h3 { font: 500 1.55rem/1.1 var(--font-display); }
+.rep-sec > .sub { margin-top: -4px; font-size: .88rem; color: var(--muted); }
+.rep-wrap .table-wrap { max-height: none; }
+.rep-wrap .table-wrap.largo { max-height: min(70dvh, 640px); }
+.rep-wrap tfoot td { font-weight: 600; background: var(--crema-soft); border-top: 2px solid var(--line); border-bottom: 0; }
+.rep-wrap td.mono, .rep-wrap .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86rem; }
+.empty-inline { padding: 14px 16px; color: var(--muted); background: #fff; border: 1px dashed var(--malva); border-radius: 12px; font-size: .92rem; }
+.rep-error { padding: 14px 16px; font-weight: 500; color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 12px; }
+.nota-rep { font-size: .86rem; color: var(--muted); }
+
+/* Variación frente al período anterior */
+.delta { font-weight: 600; }
+.delta.sube { color: #2F6B3B; }
+.delta.baja { color: var(--danger); }
+
+/* Barras horizontales (participación) */
+.barras { list-style: none; display: grid; gap: 8px; }
+.barras li { display: grid; grid-template-columns: minmax(84px, 150px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: .9rem; }
+.barras .b-etq { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barras .b-pista { height: 14px; background: var(--salvia-soft); border-radius: 999px; overflow: hidden; }
+.barras .b-fill { display: block; height: 100%; min-width: 2px; background: var(--terracota); border-radius: 999px; }
+.barras .b-val { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* Columnas verticales (por día o período) */
+.cols-wrap { overflow-x: auto; padding-bottom: 4px; }
+.cols { display: flex; align-items: flex-end; gap: 3px; height: 150px; min-width: 100%; padding-top: 6px; border-bottom: 1px solid var(--line); }
+.col { flex: 1 1 0; min-width: 12px; max-width: 48px; height: 100%; display: flex; align-items: flex-end; }
+.col span { display: block; width: 100%; min-height: 2px; background: var(--terracota); border-radius: 4px 4px 0 0; }
+.col:hover span, .col:focus span { background: var(--terracota-800); }
+.cols-eje { display: flex; justify-content: space-between; margin-top: 4px; font-size: .78rem; color: var(--muted); }
+
+/* Detalle de una factura */
+.det-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 16px; }
+.det-grid dt { font: 600 .74rem var(--font-body); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.det-grid dd { overflow-wrap: anywhere; }
+#detalleCuerpo { display: grid; gap: 16px; min-width: 0; }
+#detalleCuerpo .table-wrap { max-height: 32dvh; }
+#detalleCuerpo table { min-width: 0; }
+.dlg-acts .btn[disabled] { opacity: .6; cursor: not-allowed; }
+
+#resultado { transition: opacity .15s; }
+#resultado.cargando { opacity: .55; }
+
+/* Solo impresión */
+.print-head, .firmas { display: none; }
+
+@media (max-width: 640px) {
+  .kpi-v { font-size: 1.3rem; }
+  .barras li { grid-template-columns: minmax(70px, 110px) minmax(0, 1fr) auto; gap: 8px; }
+  .rep-wrap .tabla-resp tfoot { display: block; margin-bottom: 10px; padding: 8px 14px; background: var(--crema-soft); border: 1px solid var(--line); border-radius: 12px; }
+  .rep-wrap .tabla-resp tfoot tr { margin: 0; padding: 0; border: 0; box-shadow: none; background: none; }
+  .rep-wrap .tabla-resp tfoot td { background: none; border-top: 0; }
+  .rep-wrap .table-wrap.largo { max-height: none; }
+  .topbar .btn .lbl { display: none; }
+}
+
+@media print {
+  @page { margin: 12mm; }
+  html, body { background: #fff !important; color: #000; font-size: 11px; }
+  body::before, .topbar, .tabs, .no-print, .aviso, dialog { display: none !important; }
+  .rep-wrap { display: block; max-width: none; padding: 0; }
+  .rep-wrap .panel { padding: 0; background: none; border: 0; box-shadow: none; }
+  .print-head { display: grid; gap: 2px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #000; }
+  .ph-empresa { font-size: 15px; }
+  .ph-titulo { font-size: 13px; font-weight: 600; }
+  .ph-generado { font-size: 10px; color: #444; }
+  .print-head span:empty { display: none; }
+  #tituloRep, #subRep { display: none; }
+  .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .kpi { padding: 6px 8px; box-shadow: none; border-color: #999; break-inside: avoid; }
+  .kpi-v { font-size: 14px; }
+  .rep-sec { margin-top: 14px; }
+  .rep-sec > h3 { font-size: 15px; break-after: avoid; }
+  .rep-wrap .table-wrap, .rep-wrap .table-wrap.largo { max-height: none !important; overflow: visible !important; border: 0; }
+  .rep-wrap table, .rep-wrap .tabla-resp { display: table !important; width: 100%; min-width: 0 !important; font-size: 10.5px; }
+  .rep-wrap .tabla-resp thead { display: table-header-group !important; position: static !important; width: auto !important; height: auto !important; clip: auto !important; overflow: visible !important; }
+  .rep-wrap .tabla-resp tbody { display: table-row-group !important; }
+  .rep-wrap .tabla-resp tfoot { display: table-footer-group !important; margin: 0; padding: 0; border: 0; background: none; }
+  .rep-wrap .tabla-resp tr { display: table-row !important; margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; break-inside: avoid; }
+  .rep-wrap .tabla-resp td { display: table-cell !important; padding: 3px 6px !important; text-align: left; border-bottom: 1px solid #bbb !important; }
+  .rep-wrap .tabla-resp td.n { text-align: right; }
+  .rep-wrap .tabla-resp td::before { display: none !important; }
+  .rep-wrap th { position: static; background: #eee !important; color: #000; border-bottom: 1px solid #000; padding: 4px 6px; }
+  .rep-wrap tfoot td { background: #f3f3f3 !important; border-top: 1px solid #000 !important; }
+  .acciones-col { display: none !important; }
+  .cols-wrap, .barras .b-pista { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .cols { height: 90px; }
+  .empty-inline, .rep-error { border-color: #999; }
+  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 56px; break-inside: avoid; }
+  .firmas div { padding-top: 6px; text-align: center; border-top: 1px solid #000; }
+}
