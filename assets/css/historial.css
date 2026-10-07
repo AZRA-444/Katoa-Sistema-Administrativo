@@ -4,10 +4,6 @@
 .kpi span { font-size: .8rem; font-weight: 600; color: var(--muted); }
 .kpi strong { font: 500 1.7rem/1.1 var(--font-display); color: var(--terracota-800); }
 
-.btn-danger { color: #fff; background: var(--danger); border-color: var(--danger); }
-.btn-danger:hover:not(:disabled) { background: #8F1C12; border-color: #8F1C12; box-shadow: var(--shadow); }
-.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
-
 /* Tarjetas con la previa de cada factura */
 .lista-fac { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
 .lista-fac.cargando { opacity: .55; }
@@ -32,41 +28,6 @@
 .badge.anulada { color: var(--danger); background: #fff; border: 1px solid var(--danger); }
 .badge.metodo { margin-left: 0; }
 
-/* Detalle */
-.dlg-comp { width: min(560px, calc(100vw - 24px)); }
-.det { display: grid; gap: 14px; padding: clamp(16px, 3vw, 26px); }
-.det-cab { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
-.det-cab .btn { min-height: 44px; min-width: 44px; padding: .5rem .8rem; }
-.banner-anulada { padding: 10px 14px; font-size: .92rem; color: var(--danger); background: var(--danger-bg); border: 1px solid #F0C4BE; border-radius: 10px; }
-.datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; }
-.datos div { min-width: 0; }
-.datos dt { font-size: .76rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.datos dd { overflow-wrap: anywhere; }
-.tabla-det { width: 100%; border-collapse: collapse; font-size: .92rem; }
-.tabla-det th, .tabla-det td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
-.tabla-det th { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.tabla-det .n { text-align: right; white-space: nowrap; }
-.table-wrap { overflow-x: auto; }
-.pagos { display: grid; gap: 6px; }
-.pagos h3 { font: 600 .8rem var(--font-body); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.pago-lin { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; padding: 8px 12px; font-size: .9rem; background: var(--crema-soft); border-radius: 10px; }
-.pago-lin small { flex-basis: 100%; color: var(--muted); }
-.totales { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 20px; font-size: 1.05rem; }
-.totales strong { color: var(--terracota-800); }
-.det-acts { justify-content: flex-start; }
-.det-acts .btn { flex: 1 1 200px; }
-.det-acts .btn[hidden] { display: none; }
-.aviso-peligro { padding: 10px 14px; font-size: .9rem; color: var(--danger); background: var(--danger-bg); border-radius: 10px; }
-#compImg { width: 100%; max-height: 70dvh; object-fit: contain; background: var(--crema-soft); border: 1px solid var(--line); border-radius: 12px; }
-.field textarea { resize: vertical; }
-
 @media (max-width: 720px) {
   .lista-fac { grid-template-columns: 1fr; }
-  .det-acts .btn { flex-basis: 100%; }
 }
-
-/* Administrador: filtros de ventas (fechas, método, vendedor, búsqueda, estado) */
-.tools-admin { margin-bottom: 16px; }
-.tools-admin .field { flex: 1 1 150px; }
-.tools-admin .field.grow { flex: 2 1 260px; }
-.tools-admin .field:has(.filtros) { flex: 2 1 330px; }
