@@ -64,3 +64,9 @@
   .lista-fac { grid-template-columns: 1fr; }
   .det-acts .btn { flex-basis: 100%; }
 }
+
+/* Administrador: filtros de ventas (fechas, método, vendedor, búsqueda, estado) */
+.tools-admin { margin-bottom: 16px; }
+.tools-admin .field { flex: 1 1 150px; }
+.tools-admin .field.grow { flex: 2 1 260px; }
+.tools-admin .field:has(.filtros) { flex: 2 1 330px; }
