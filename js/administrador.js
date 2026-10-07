@@ -99,6 +99,13 @@ function columnas(cont, series, resaltar) {
 function vacio(sel, hay) { $(`#vacio${sel}`).hidden = hay; $(`#filas${sel}`).closest('.table-wrap').hidden = !hay; }
 
 //--- VENTAS ---//
+/** Abre el modal de js/factura-modal.js (PDF, WhatsApp, comprobante y anular). */
+function botonVistaPrevia(id) {
+    const b = el('button', { type: 'button', className: 'btn btn-ghost btn-mini', title: 'Vista previa de la factura', ariaLabel: `Vista previa de la factura ${id}` },
+        el('i', { className: 'fas fa-eye' }), ' Vista previa');
+    b.dataset.verFactura = id;
+    return b;
+}
 function ventasFiltradas() {
     const q = $('#fBuscar').value.trim().toLowerCase(), m = $('#fMetodo').value, v = $('#fVendedor').value;
     return S.ventas.filter((f) =>
@@ -127,7 +134,8 @@ function pintarVentas() {
         el('td', {}, `${f.nombre || ''} ${f.apellido || ''}`.trim(), el('span', { className: 'sub', textContent: f.cedula || '' })),
         el('td', { textContent: f.vendedor }),
         el('td', {}, el('span', { className: 'pill', textContent: nm(f.metodo_pago) })),
-        el('td', { className: 'n', textContent: usd(f.total_usd) }))));
+        el('td', { className: 'n', textContent: usd(f.total_usd) }),
+        el('td', { className: 'c' }, botonVistaPrevia(f.id_factura)))));
     $('#masV').hidden = v.length <= S.verV;
 }
 
@@ -238,6 +246,7 @@ async function guardarEgreso(ev) {
     const mes = $('#fMes');
     mes.value = S.mes; mes.max = S.mes;
     mes.addEventListener('change', () => { if (mes.value) { S.mes = mes.value; cargar(); } });
+    document.addEventListener('factura:anulada', cargar);   // una factura anulada sale de ventas, KPIs y finanzas
     $('#tabVentas').addEventListener('click', () => cambiarTab('Ventas'));
     $('#tabEgresos').addEventListener('click', () => cambiarTab('Egresos'));
     $('#tabFinanzas').addEventListener('click', () => cambiarTab('Finanzas'));
