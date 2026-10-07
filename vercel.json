@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/enviar-factura.py": { "maxDuration": 30 },
-    "api/factura-pdf.py": { "maxDuration": 30 }
+    "api/factura-pdf.py": { "maxDuration": 30 },
+    "api/reportes.py": { "maxDuration": 30 }
   },
   "headers": [
     {
