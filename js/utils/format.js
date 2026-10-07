@@ -12,6 +12,23 @@ export const round2 = (n) => {
 export const usd = (n) => '$ ' + nf.format(n);
 export const bs = (n) => 'Bs ' + nf.format(n);
 
+//--- CIFRAS Y FECHAS (hora de Venezuela) ---//
+const TZ = 'America/Caracas';
+export const num = (n) => nf.format(Number(n) || 0);
+export const entero = (n) => new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 }).format(Number(n) || 0);
+export const porcentaje = (n) => `${nf.format(Number(n) || 0)} %`;
+/** AAAA-MM-DD de hoy en Venezuela (no en la zona del dispositivo). */
+export const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
+/** Suma días a un AAAA-MM-DD sin pasar por zonas horarias. */
+export const sumarDias = (iso, dias) => {
+    const [a, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+};
+export const fechaHora = (iso) => (iso ? new Date(iso).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short', timeZone: TZ }) : '—');
+export const soloHora = (iso) => (iso ? new Date(iso).toLocaleTimeString(LOCALE, { timeStyle: 'short', timeZone: TZ }) : '—');
+/** AAAA-MM-DD -> 05/10/2026 */
+export const fechaISO = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+
 //--- TEXTO / DOCUMENTOS ---//
 export const soloDigitos = (v) => String(v).replace(/\D/g, '');
 

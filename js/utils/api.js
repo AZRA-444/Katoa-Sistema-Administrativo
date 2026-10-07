@@ -2,6 +2,7 @@
 
 const ENDPOINTS = {
     inventario: '/api/inventario',
+    reportes: '/api/reportes', // api/reportes.py (GET ?tipo=cierre|facturas|detalle|ventas|…)
     clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
     factura: '/api/enviar-factura',
     facturaPdf: '/api/factura-pdf', // GET ?id= → PDF carta · POST {id_factura, telefono} → reenvía por WhatsApp
@@ -112,4 +113,29 @@ export async function enviarFactura(payload) {
     if (d.status === 'duplicada') return d;
     if (!r.ok || d.status === 'error') throw new Error(d.message || d.error || 'Error desconocido del servidor.');
     return d;
+}
+
+//--- REPORTES ---//
+/** GET /api/reportes?tipo=… Devuelve { meta, data }. Lanza Error con el mensaje que se muestra al usuario. */
+export async function obtenerReporte(tipo, params = {}) {
+    const qs = new URLSearchParams({ tipo });
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+    let r;
+    try {
+        r = await request(`${ENDPOINTS.reportes}?${qs}`);
+    } catch (e) {
+        if (e instanceof TypeError) throw new Error('Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.');
+        throw e;
+    }
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo generar el reporte.');
+    return d;
+}
+
+/** Secciones activas del inventario ({ id, nombre }) para filtrar reportes. */
+export async function obtenerSecciones() {
+    const r = await request(`${ENDPOINTS.inventario}?modo=secciones`);
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudieron cargar las secciones.');
+    return d.data;
 }
