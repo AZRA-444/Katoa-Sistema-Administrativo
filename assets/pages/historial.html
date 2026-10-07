@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Facturas de hoy — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/historial.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/historial.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Facturas de hoy</h1>
+        <button type="button" class="btn btn-ghost" id="btnActualizar"><i class="fas fa-rotate"></i>
+            Actualizar</button>
+    </header>
+
+    <main class="inv-wrap" data-encargado-access>
+        <section class="kpis" aria-label="Resumen del día" aria-live="polite">
+            <div class="kpi"><span>Facturas</span><strong id="kCant">0</strong></div>
+            <div class="kpi"><span>Total vendido (USD)</span><strong id="kUsd">$ 0,00</strong></div>
+            <div class="kpi"><span>Total vendido (Bs)</span><strong id="kBs">Bs 0,00</strong></div>
+            <div class="kpi" id="kpiAnuladas" hidden><span>Anuladas</span><strong id="kAnul">0</strong></div>
+        </section>
+
+        <section class="panel">
+            <div class="tools">
+                <div class="field grow"><label for="fBuscar">Buscar</label><input id="fBuscar" type="search"
+                        maxlength="60" placeholder="Número de factura, cliente, cédula o teléfono" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <span class="lbl" id="lblEstado">Estado</span>
+                    <div class="filtros" role="group" aria-labelledby="lblEstado">
+                        <button type="button" class="filtro" data-estado="" aria-pressed="true">Todas</button>
+                        <button type="button" class="filtro" data-estado="activa" aria-pressed="false">Activas</button>
+                        <button type="button" class="filtro" data-estado="anulada"
+                            aria-pressed="false">Anuladas</button>
+                    </div>
+                </div>
+            </div>
+            <h2>Facturas <span class="count" id="cont">0</span></h2>
+            <div id="lista" class="lista-fac" aria-busy="false"></div>
+            <p class="nota" id="nota" hidden></p>
+            <div class="empty" id="vacio" hidden><i class="fas fa-file-invoice"></i>
+                <p id="vacioTxt">Hoy todavía no hay facturas.</p>
+            </div>
+        </section>
+    </main>
+
+    <p id="aviso" class="aviso" role="status" hidden></p>
+
+    <!-- Detalle de una factura -->
+    <dialog class="dlg" id="dlgFactura" aria-labelledby="hFac">
+        <div class="det">
+            <div class="det-cab">
+                <div>
+                    <h2 id="hFac">Factura</h2>
+                    <p class="muted" id="detSub"></p>
+                </div>
+                <button type="button" class="btn btn-ghost" data-cerrar aria-label="Cerrar"><i
+                        class="fas fa-xmark"></i></button>
+            </div>
+            <p class="banner-anulada" id="detAnulada" hidden></p>
+
+            <dl class="datos" id="detDatos"></dl>
+
+            <div class="table-wrap">
+                <table class="tabla-det">
+                    <caption class="sr-only">Productos de la factura</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Producto</th>
+                            <th scope="col" class="n">Cant.</th>
+                            <th scope="col" class="n">Precio</th>
+                            <th scope="col" class="n">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detProductos"></tbody>
+                </table>
+            </div>
+
+            <div id="detPagos" class="pagos"></div>
+            <p class="totales" id="detTotales"></p>
+            <p class="muted" id="detObs" hidden></p>
+
+            <div class="dlg-foot">
+                <div class="dlg-acts det-acts">
+                    <button type="button" class="btn btn-ghost" id="btnPdf"><i class="fas fa-print"></i> Ver e imprimir
+                        PDF</button>
+                    <button type="button" class="btn btn-ghost" id="btnWa"><i class="fab fa-whatsapp"></i> Reenviar por
+                        WhatsApp</button>
+                    <button type="button" class="btn btn-ghost" id="btnComp"><i class="fas fa-receipt"></i> Ver
+                        comprobante</button>
+                    <button type="button" class="btn btn-danger" id="btnAnular" data-admin-only><i
+                            class="fas fa-ban"></i> Anular factura</button>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Comprobante de pago -->
+    <dialog class="dlg dlg-comp" id="dlgComp" aria-labelledby="hComp">
+        <div class="det">
+            <div class="det-cab">
+                <h2 id="hComp">Comprobante de pago</h2>
+                <button type="button" class="btn btn-ghost" data-cerrar aria-label="Cerrar"><i
+                        class="fas fa-xmark"></i></button>
+            </div>
+            <p class="muted" id="compEstado" role="status">Cargando comprobante…</p>
+            <img id="compImg" alt="Comprobante de pago de la factura" hidden />
+        </div>
+    </dialog>
+
+    <!-- Anular -->
+    <dialog class="dlg dlg-sm" id="dlgAnular" aria-labelledby="hAnular">
+        <form id="formAnular" novalidate>
+            <h2 id="hAnular">Anular factura</h2>
+            <p class="muted" id="anularInfo"></p>
+            <p class="aviso-peligro">La factura quedará anulada, dejará de sumar en los totales del día y los productos
+                volverán al inventario (queda registrado en el kardex). Esto no se puede deshacer.</p>
+            <div class="field"><label for="aMotivo">Motivo de la anulación</label>
+                <textarea id="aMotivo" rows="3" minlength="3" maxlength="300" required></textarea>
+            </div>
+            <div class="dlg-foot">
+                <p class="form-error" id="errAnular" role="alert" hidden></p>
+                <div class="dlg-acts">
+                    <button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button>
+                    <button type="submit" class="btn btn-danger" id="btnConfirmarAnular">Anular factura</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+</body>
+
+</html>
