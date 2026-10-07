@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Reportes — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/reportes.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/reportes.js"></script>
+</head>
+
+<body>
+    <header class="topbar no-print">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Reportes</h1>
+        <button type="button" class="btn btn-ghost" id="btnCsv"><i class="fas fa-file-csv"></i> <span
+                class="lbl">Exportar CSV</span></button>
+        <button type="button" class="btn btn-primary" id="btnImprimir"><i class="fas fa-print"></i> <span
+                class="lbl">Imprimir</span></button>
+    </header>
+
+    <main class="inv-wrap rep-wrap" data-encargado-access>
+        <nav class="tabs no-print" id="tabs" role="tablist" aria-label="Tipo de reporte"></nav>
+
+        <section class="panel" id="panReporte" role="tabpanel" aria-labelledby="tabActivo">
+            <div class="print-head" id="printHead" aria-hidden="true">
+                <strong class="ph-empresa">Corporación Katoa Global</strong>
+                <span class="ph-titulo" id="phTitulo"></span>
+                <span id="phPeriodo"></span>
+                <span id="phFiltros"></span>
+                <span class="ph-generado" id="phGenerado"></span>
+            </div>
+
+            <form class="tools no-print" id="filtros" novalidate></form>
+
+            <h2 id="tituloRep">Reporte</h2>
+            <p class="resumen" id="subRep" aria-live="polite"></p>
+
+            <div id="resultado" aria-busy="false"></div>
+
+            <div class="firmas" aria-hidden="true">
+                <div>Elaborado por</div>
+                <div>Revisado por</div>
+            </div>
+        </section>
+    </main>
+
+    <p id="aviso" class="aviso no-print" role="status" hidden></p>
+
+    <dialog class="dlg" id="dlgFactura" aria-labelledby="hFactura">
+        <form method="dialog" id="formFactura">
+            <h2 id="hFactura">Factura</h2>
+            <div id="detalleCuerpo"></div>
+            <div class="dlg-foot">
+                <p class="form-error" id="detalleError" role="alert" hidden></p>
+                <div class="dlg-acts">
+                    <button type="submit" class="btn btn-ghost">Cerrar</button>
+                    <button type="button" class="btn btn-ghost" id="dWs"><i class="fab fa-whatsapp"></i> Reenviar por
+                        WhatsApp</button>
+                    <button type="button" class="btn btn-primary" id="dPdf"><i class="fas fa-print"></i>
+                        Reimprimir</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+</body>
+
+</html>
