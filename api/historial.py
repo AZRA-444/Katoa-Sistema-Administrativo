@@ -3,10 +3,8 @@
 GET (encargado, admin, sysadmin):
     (sin parámetros) | ?modo=hoy      -> facturas de HOY (hora de Venezuela) con sus productos
     ?modo=comprobante&id=FAC-...      -> imagen del comprobante de pago (bucket privado, se sirve por aquí)
-GET (solo admin y sysadmin):
-    ?modo=rango[&desde=AAAA-MM-DD&hasta=AAAA-MM-DD]
-                                      -> facturas de un rango (por defecto: del día 1 del mes hasta hoy;
-                                         máximo 366 días). Es lo que usa el Administrador.
+    ?modo=factura&id=FAC-...          -> UNA factura con sus productos (la usa el modal «Vista previa»,
+                                         p. ej. desde la tabla de ventas del Administrador)
 POST (solo admin y sysadmin), JSON:
     {"accion": "anular", "id_factura": "...", "motivo": "..."}
         Marca la factura como anulada y devuelve el stock por el kardex (SQL: anular_factura), todo en una
@@ -17,7 +15,7 @@ El PDF y el reenvío por WhatsApp ya existen en /api/factura-pdf.
 import os
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -28,9 +26,6 @@ import _comun as c  # noqa: E402
 
 MAX_BODY = 4 * 1024
 LIMITE = 300
-LIMITE_RANGO = 500
-MAX_DIAS = 366
-FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 BUCKET_COMPROBANTES = "comprobantes"
 VENEZUELA = timezone(timedelta(hours=-4))  # sin horario de verano
 ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
@@ -78,7 +73,11 @@ def _facturas(inicio, fin, limite):
     truncado = len(filas) > limite
     filas = filas[:limite]
 
-    # Quién anuló (nombre del perfil), en una sola consulta
+    return _preparar(filas), truncado
+
+
+def _preparar(filas):
+    """Resuelve quién anuló (una sola consulta), oculta la ruta del comprobante y ordena los productos."""
     ids = sorted({f["anulada_por"] for f in filas if f.get("anulada_por") and UUID_RE.match(f["anulada_por"])})
     nombres = {}
     if ids:
@@ -89,17 +88,7 @@ def _facturas(inicio, fin, limite):
         f["tiene_comprobante"] = bool(f.pop("comprobante_path", None))
         f.pop("anulada_por", None)
         f["factura_detalles"] = sorted(f.get("factura_detalles") or [], key=lambda d: d["id"])
-    return filas, truncado
-
-
-def _dia(v, nombre):
-    """AAAA-MM-DD real (rechaza 2026-02-30)."""
-    if not FECHA_RE.match(v or ""):
-        raise c.ErrorPeticion(400, f"Fecha inválida en «{nombre}».")
-    try:
-        return date.fromisoformat(v)
-    except ValueError:
-        raise c.ErrorPeticion(400, f"Fecha inválida en «{nombre}».") from None
+    return filas
 
 
 def _medianoche(d):
@@ -112,18 +101,13 @@ def _hoy():
     return _facturas(inicio, inicio + timedelta(days=1), LIMITE)
 
 
-def _rango(qs):
-    """Facturas entre «desde» y «hasta» (ambos inclusive, hora de Venezuela). Por defecto, el mes en curso."""
-    hoy = datetime.now(VENEZUELA).date()
-    g = lambda k: (qs.get(k, [""])[0] or "").strip()  # noqa: E731
-    desde = _dia(g("desde"), "Desde") if g("desde") else hoy.replace(day=1)
-    hasta = _dia(g("hasta"), "Hasta") if g("hasta") else hoy
-    if desde > hasta:
-        raise c.ErrorPeticion(400, "La fecha «Desde» no puede ser posterior a «Hasta».")
-    if (hasta - desde).days >= MAX_DIAS:
-        raise c.ErrorPeticion(400, "El rango no puede superar un año.")
-    filas, truncado = _facturas(_medianoche(desde), _medianoche(hasta + timedelta(days=1)), LIMITE_RANGO)
-    return filas, truncado, desde, hasta
+def _una(id_factura):
+    if not ID_RE.match(id_factura):
+        raise c.ErrorPeticion(400, "Id de factura inválido.")
+    filas = _get("facturas", [("select", COLS), ("id_factura", f"eq.{id_factura}"), ("limit", "1")])
+    if not filas:
+        raise c.ErrorPeticion(404, "La factura no existe.")
+    return _preparar(filas)[0]
 
 
 def _comprobante(id_factura):
@@ -175,16 +159,11 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            u = _entrada(self, "encargado")
+            _entrada(self, "encargado")
             qs = parse_qs(urlparse(self.path).query)
             modo = (qs.get("modo", ["hoy"])[0] or "hoy")
-            if modo == "rango":
-                if not c.es_admin(u):
-                    raise c.ErrorPeticion(403, "No tienes permiso para esta acción.")
-                filas, truncado, desde, hasta = _rango(qs)
-                return c.responder(self, 200, {"status": "ok", "data": filas, "truncado": truncado,
-                                               "limite": LIMITE_RANGO, "desde": desde.isoformat(),
-                                               "hasta": hasta.isoformat()})
+            if modo == "factura":
+                return c.responder(self, 200, {"status": "ok", "data": _una((qs.get("id") or [""])[0])})
             if modo == "hoy":
                 filas, truncado = _hoy()
                 return c.responder(self, 200, {"status": "ok", "data": filas, "truncado": truncado,
