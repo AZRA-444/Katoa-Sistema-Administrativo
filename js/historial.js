@@ -1,7 +1,10 @@
 /* ==========================================================================
  * Facturas de hoy — Katoa
- * Lista las facturas del día con su previa y un detalle con acciones:
+ * Lista las facturas con su previa y un detalle con acciones:
  * ver/imprimir PDF, reenviar por WhatsApp, ver comprobante y anular (solo admin).
+ * Lo usan dos páginas (según <body data-modo>):
+ *   · historial.html      → facturas de HOY (encargado, admin, sysadmin)
+ *   · administrador.html  → ventas por rango de fechas, por defecto el mes en curso (data-modo="admin")
  * Servidor: /api/historial (lista, comprobante, anular) y /api/factura-pdf (PDF y WhatsApp).
  * ========================================================================== */
 import { usd, bs, round2 } from './utils/format.js';
@@ -28,7 +31,8 @@ const AVISOS_WA = {
     no_configurado: ['El envío por WhatsApp no está configurado en el servidor.', true],
 };
 
-const state = { items: [], estado: '', q: '', actual: null, seq: 0, admin: false };
+const ADMIN = document.body.dataset.modo === 'admin';   // vista de ventas por rango (Administrador)
+const state = { items: [], estado: '', q: '', metodo: '', vendedor: '', actual: null, seq: 0, admin: false };
 let avisoT;
 
 const metodo = (m) => METODOS[m] ?? m ?? '—';
@@ -38,6 +42,7 @@ const nombreCliente = (f) => [f.nombre, f.apellido].filter(Boolean).join(' ');
 const dato = (v) => (v && v !== 'N/A' ? v : null);
 const normal = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const soloDig = (s) => String(s ?? '').replace(/\D/g, '');
+const hoyISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });   // AAAA-MM-DD
 
 function aviso(msg, error = false) {
     const n = $('#aviso');
@@ -75,6 +80,8 @@ function visibles() {
     const dig = soloDig(state.q);
     return state.items.filter((f) => {
         if (state.estado && f.estado !== state.estado) return false;
+        if (state.metodo && f.metodo_pago !== state.metodo) return false;
+        if (state.vendedor && f.vendedor !== state.vendedor) return false;
         if (!q) return true;
         return normal(`${f.id_factura} ${nombreCliente(f)}`).includes(q)
             || (dig.length >= 3 && (soloDig(f.cedula).includes(dig) || soloDig(f.telefono).includes(dig)));
@@ -101,7 +108,7 @@ function tarjeta(f) {
     b.append(
         el('div', { className: 'fac-top' },
             el('span', { className: 'fac-id', textContent: f.id_factura }),
-            el('span', { className: 'fac-hora', textContent: hora(f.created_at) })),
+            el('span', { className: 'fac-hora', textContent: ADMIN ? fechaHora(f.created_at) : hora(f.created_at) })),
         el('div', { className: 'fac-cliente', textContent: nombreCliente(f) || 'Sin nombre' }),
         el('div', { className: 'fac-meta' },
             el('span', { className: 'badge metodo', textContent: metodo(f.metodo_pago) }),
@@ -120,19 +127,38 @@ function pintarLista() {
     $('#cont').textContent = String(filas.length);
     $('#vacio').hidden = filas.length > 0;
     $('#vacioTxt').textContent = state.items.length === 0
-        ? 'Hoy todavía no hay facturas.' : 'Ninguna factura coincide con la búsqueda o el filtro.';
+        ? (ADMIN ? 'No hay facturas en el rango de fechas elegido.' : 'Hoy todavía no hay facturas.')
+        : 'Ninguna factura coincide con la búsqueda o los filtros.';
+}
+
+// Vendedores del rango cargado (para el filtro del Administrador); conserva la selección si sigue existiendo.
+function pintarVendedores() {
+    const sel = $('#fVendedor');
+    const nombres = [...new Set(state.items.map((f) => f.vendedor))].sort((a, b) => a.localeCompare(b, 'es'));
+    sel.replaceChildren(el('option', { value: '', textContent: 'Todos' }), ...nombres.map((n) => el('option', { value: n, textContent: n })));
+    if (!nombres.includes(state.vendedor)) state.vendedor = '';
+    sel.value = state.vendedor;
 }
 
 async function cargar() {
     const seq = ++state.seq;
     $('#lista').classList.add('cargando'); $('#lista').setAttribute('aria-busy', 'true');
     try {
-        const d = await api(API);
+        let url = API;
+        if (ADMIN) {
+            const desde = $('#fDesde').value, hasta = $('#fHasta').value;
+            if (!desde || !hasta || desde > hasta) throw new Error('Revisa las fechas: «Desde» no puede ser posterior a «Hasta».');
+            url = `${API}?modo=rango&desde=${desde}&hasta=${hasta}`;
+        }
+        const d = await api(url);
         if (seq !== state.seq) return;
         state.items = d.data;
         const nota = $('#nota');
         nota.hidden = !d.truncado;
-        if (d.truncado) nota.textContent = 'Hay más facturas hoy de las que se pueden mostrar. Se listan las 300 más recientes.';
+        if (d.truncado) nota.textContent = ADMIN
+            ? `Hay más facturas de las que se pueden mostrar. Se listan las ${d.limite} más recientes: acota el rango de fechas.`
+            : `Hay más facturas hoy de las que se pueden mostrar. Se listan las ${d.limite} más recientes.`;
+        if (ADMIN) pintarVendedores();
         pintarResumen(); pintarLista();
         if (state.actual) {                    // refresca el detalle abierto (p. ej. tras anular)
             const f = state.items.find((x) => x.id_factura === state.actual);
@@ -280,6 +306,7 @@ async function confirmarAnular(e) {
 async function init() {
     if (window.Auth && !(await window.Auth.listo)) return;
     state.admin = !!window.Auth?.tieneNivel('admin');
+    if (ADMIN && !state.admin) { location.replace('../../index.html'); return; }   // el servidor también lo exige (403)
 
     let t;
     $('#fBuscar').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; pintarLista(); }, 200); });
@@ -294,6 +321,17 @@ async function init() {
         if (f) abrirDetalle(f);
     });
     $('#btnActualizar').addEventListener('click', cargar);
+    if (ADMIN) {
+        const hoy = hoyISO();
+        $('#fDesde').value = `${hoy.slice(0, 8)}01`;      // día 1 del mes en curso
+        $('#fHasta').value = hoy;
+        $('#fDesde').max = $('#fHasta').max = hoy;
+        $('#fMetodo').append(...Object.entries(METODOS).map(([v, n]) => el('option', { value: v, textContent: n })));
+        $('#fMetodo').addEventListener('change', (e) => { state.metodo = e.target.value; pintarLista(); });
+        $('#fVendedor').addEventListener('change', (e) => { state.vendedor = e.target.value; pintarLista(); });
+        $('#fDesde').addEventListener('change', () => { $('#fHasta').min = $('#fDesde').value; cargar(); });
+        $('#fHasta').addEventListener('change', () => { $('#fDesde').max = $('#fHasta').value || hoy; cargar(); });
+    }
     $('#btnPdf').addEventListener('click', verPdf);
     $('#btnWa').addEventListener('click', reenviar);
     $('#btnComp').addEventListener('click', verComprobante);
