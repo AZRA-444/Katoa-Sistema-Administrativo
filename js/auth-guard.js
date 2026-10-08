@@ -89,7 +89,7 @@
 
         async cerrarSesion() {
             try {
-                await fetch('/api/logout', {
+                await fetch('/api/sesion', {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
