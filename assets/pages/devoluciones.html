@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Devoluciones — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/historial.css" />
+    <link rel="stylesheet" href="../css/devoluciones.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/devoluciones.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Devoluciones</h1>
+        <button type="button" class="btn btn-primary" id="btnNueva"><i class="fas fa-rotate-left"></i> Nueva devolución</button>
+    </header>
+
+    <!-- Solo admin y sysadmin (el servidor también lo exige) -->
+    <main class="inv-wrap" data-admin-only>
+        <section class="kpis" aria-label="Resumen del periodo" aria-live="polite">
+            <div class="kpi"><span>Devoluciones</span><strong id="kCant">0</strong></div>
+            <div class="kpi"><span>Unidades devueltas</span><strong id="kUni">0</strong></div>
+            <div class="kpi"><span>Reembolsado (USD)</span><strong id="kUsd">$ 0,00</strong></div>
+            <div class="kpi"><span>Reembolsado (Bs)</span><strong id="kBs">Bs 0,00</strong></div>
+        </section>
+
+        <section class="panel">
+            <div class="tools">
+                <div class="field grow"><label for="fBuscar">Buscar</label>
+                    <input id="fBuscar" type="search" maxlength="60" placeholder="Factura, cliente, producto o motivo"
+                        autocomplete="off" /></div>
+                <div class="field"><label for="fDesde">Desde</label><input id="fDesde" type="date" /></div>
+                <div class="field"><label for="fHasta">Hasta</label><input id="fHasta" type="date" /></div>
+                <button type="button" class="btn btn-ghost" id="btnActualizar"><i class="fas fa-rotate"></i> Actualizar</button>
+            </div>
+            <h2>Devoluciones <span class="count" id="cont">0</span></h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th><th>N.º</th><th>Factura</th><th>Cliente</th><th>Productos</th>
+                            <th class="n">Reembolso</th><th>Registrada por</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filas"></tbody>
+                </table>
+            </div>
+            <p class="nota" id="nota" hidden></p>
+            <div class="empty" id="vacio" hidden><i class="fas fa-rotate-left"></i>
+                <p id="vacioTxt">No hay devoluciones en este periodo.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Nueva devolución -->
+    <dialog class="dlg" id="dlgNueva" aria-labelledby="hNueva">
+        <form id="formNueva" novalidate>
+            <h2 id="hNueva">Nueva devolución</h2>
+
+            <div id="paso1">
+                <div class="field"><label for="bFactura">Buscar la factura</label>
+                    <input id="bFactura" type="search" maxlength="60" autocomplete="off"
+                        placeholder="Número de factura, cliente, cédula o teléfono" /></div>
+                <p class="hint" id="bHint">Escribe al menos 2 caracteres. Las facturas anuladas no aparecen.</p>
+                <ul class="res-fac" id="resFac" aria-live="polite"></ul>
+            </div>
+
+            <div id="paso2" hidden>
+                <div class="dev-cab">
+                    <div>
+                        <strong id="dFactura"></strong>
+                        <p class="muted" id="dCliente"></p>
+                    </div>
+                    <button type="button" class="btn btn-ghost" id="btnOtra"><i class="fas fa-arrow-left"></i> Cambiar factura</button>
+                </div>
+
+                <div class="table-wrap">
+                    <table class="tabla-dev">
+                        <caption class="sr-only">Productos de la factura</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Producto</th>
+                                <th scope="col" class="n">Vendido</th>
+                                <th scope="col" class="n">Ya devuelto</th>
+                                <th scope="col" class="n">A devolver</th>
+                                <th scope="col" class="c">Vuelve al inventario</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dLineas"></tbody>
+                    </table>
+                </div>
+
+                <div class="field"><label for="dMotivo">Motivo de la devolución</label>
+                    <textarea id="dMotivo" rows="2" minlength="3" maxlength="300" required></textarea></div>
+                <p class="hint">Marca «Vuelve al inventario» solo si el producto está en condiciones de venderse otra vez.
+                    Si está dañado, desmárcalo: se registra la devolución pero el stock no cambia.</p>
+            </div>
+
+            <div class="dlg-foot">
+                <div class="total-bar" id="dTotales" aria-live="polite" hidden></div>
+                <p class="form-error" id="dError" role="alert" hidden></p>
+                <div class="dlg-acts">
+                    <button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btnRegistrar" hidden>Registrar devolución</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Detalle de una devolución -->
+    <dialog class="dlg" id="dlgDetalle" aria-labelledby="hDetalle">
+        <div class="dlg-cuerpo">
+            <h2 id="hDetalle">Devolución</h2>
+            <p class="muted" id="xSub"></p>
+            <dl class="dl-dev" id="xDatos"></dl>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Producto</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th><th class="c">Stock</th></tr></thead>
+                    <tbody id="xLineas"></tbody>
+                </table>
+            </div>
+            <div class="total-bar" id="xTotales"></div>
+            <div class="dlg-acts">
+                <button type="button" class="btn btn-ghost" id="xFactura"><i class="fas fa-file-invoice"></i> Ver factura</button>
+                <button type="button" class="btn btn-primary" data-cerrar>Cerrar</button>
+            </div>
+        </div>
+    </dialog>
+
+</body>
+
+</html>
