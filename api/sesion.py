@@ -1,4 +1,6 @@
-"""GET /api/sesion
+"""GET  /api/sesion  -> comprueba la sesión (descrito abajo)
+POST /api/sesion  -> cierra la sesión (antes /api/logout; se unió para no superar las 12 funciones del plan Hobby de Vercel)
+
 
 Comprueba la sesión a partir de las cookies HttpOnly. Si el access token venció
 pero el refresh token sigue vigente, renueva la sesión de forma transparente.
@@ -69,4 +71,19 @@ class handler(BaseHTTPRequestHandler):
             cookies=nuevas_cookies,
         )
 
-    do_POST = do_PUT = do_PATCH = do_DELETE = c.metodo_no_permitido
+    def do_POST(self):
+        """Cerrar sesión: revoca el token en Supabase y borra las cookies."""
+        if not c.origen_valido(self):
+            return c.responder(self, 403, {"error": "Origen no permitido."})
+        try:
+            c.leer_json(self, 64)
+        except c.ErrorPeticion as e:
+            return c.responder(self, e.status, {"error": e.mensaje})
+
+        access = c.leer_cookies(self).get(c.COOKIE_ACCESS)
+        if access and c.config_completa():
+            c.auth_logout(access)
+
+        return c.responder(self, 200, {"ok": True}, cookies=c.cookies_borrar())
+
+    do_PUT = do_PATCH = do_DELETE = c.metodo_no_permitido
