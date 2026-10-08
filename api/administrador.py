@@ -1,7 +1,8 @@
 """/api/administrador  (solo admin y sysadmin)
 
 GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias}
-POST {accion: "egreso_crear" | "egreso_eliminar", ...}
+GET  ?modo=dev_lista | dev_buscar | dev_factura  -> devoluciones de productos (ver api/_devoluciones.py)
+POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar", ...}
 
 Ventas: tabla `facturas`. Costo de ventas: `inv_kardex` (SALIDA_VENTA - DEVOLUCION_CLIENTE).
 Egresos: tabla `egresos` (ver sql/egresos.sql). Las fechas del mes se calculan en hora de Venezuela (UTC-4).
@@ -17,8 +18,9 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _devoluciones as dev  # noqa: E402
 
-MAX_BODY = 16 * 1024
+MAX_BODY = 32 * 1024     # las devoluciones pueden traer hasta 150 líneas
 LIMITE = 5000
 MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -155,7 +157,10 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             _entrada(self)
-            mes = (parse_qs(urlparse(self.path).query).get("mes", [""])[0] or "").strip()
+            qs = parse_qs(urlparse(self.path).query)
+            if qs.get("modo"):
+                return self._ok(**dev.leer(qs))
+            mes = (qs.get("mes", [""])[0] or "").strip()
             if not MES_RE.match(mes):
                 raise c.ErrorPeticion(400, "Mes inválido.")
             ini, fin = _rango(mes)
@@ -177,6 +182,8 @@ class handler(BaseHTTPRequestHandler):
             elif d.get("accion") == "egreso_eliminar":
                 _eliminar(d)
                 self._ok(message="Egreso eliminado.")
+            elif d.get("accion") == "devolucion_registrar":
+                self._ok(id=dev.registrar(d, u), message="Devolución registrada.")
             else:
                 raise c.ErrorPeticion(400, "Acción no válida.")
         except c.ErrorPeticion as e:
