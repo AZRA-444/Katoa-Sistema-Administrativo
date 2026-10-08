@@ -32,6 +32,10 @@
         <span class="home-user-nombre" id="usuarioNombre"></span>
         <span class="home-user-rol" id="usuarioRol"></span>
       </div>
+      <a class="btn-campana" href="assets/pages/notificaciones.html" id="btnCampana" aria-label="Notificaciones">
+        <i class="fa-solid fa-bell"></i>
+        <span class="campana-n" id="campanaN" hidden>0</span>
+      </a>
       <button type="button" class="btn-salir" id="btnSalir">
         <i class="fa-solid fa-right-from-bracket"></i> Salir
       </button>
@@ -118,12 +122,12 @@
             <p>Cierre de caja, reimpresión de facturas y reportes imprimibles.</p>
           </div>
         </a>
-        <!-- Accesible para: sysAdmin únicamente -->
-        <a class="card" href="assets/pages/notificaciones.html" data-sysadmin-only>
+        <!-- Accesible para: admin y sysAdmin (todos los roles reciben las notificaciones desde la campana) -->
+        <a class="card" href="assets/pages/notificaciones.html#publicar" data-admin-only>
           <div class="card-icon"><i class="fas fa-bell"></i></div>
           <div class="card-body">
             <h3>Notificaciones</h3>
-            <p>Publica avisos de cambios y novedades para todo el personal.</p>
+            <p>Publica avisos de la empresa y cambios del sistema para todo el personal.</p>
           </div>
         </a>
       </div>
