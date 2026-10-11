@@ -8,6 +8,8 @@ GET (encargado, admin, sysadmin):
     ?modo=secciones | ?modo=proveedores
 POST (solo admin y sysadmin), JSON {"accion": ...}:
     crear | llegada | salida | ajuste | proveedor
+    «salida» y «ajuste» también los puede hacer cualquier otro rol con {"autorizacion": {"id", "codigo"}}
+    (código de un solo uso que aprueba un admin; ver api/_autorizaciones.py).
 El stock solo cambia mediante funciones SQL (inv_mover): el kardex siempre queda registrado.
 """
 import json
@@ -23,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
+import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
 
 MAX_BODY = 64 * 1024
@@ -309,12 +312,21 @@ def _llegada(d, u):
 
 
 def _mover(d, u, tipo):
+    variante = _entero(d.get("variante_id"), "la variante")
+    cantidad = _entero(d.get("cantidad"), "la cantidad", 1, 100_000)
+    motivo = _texto(d.get("motivo"), "el motivo", 300, minimo=3)
+    # Quien no es admin necesita un código aprobado para ESTE producto, cantidad y sentido.
+    accion = "salida" if tipo == "SALIDA_OTRO" else "ajuste"
+    sentido = "entrada" if tipo == "AJUSTE_ENTRADA" else "salida"
+    quien = aut.exigir(u, d.get("autorizacion"), accion, variante, {"cantidad": cantidad, "sentido": sentido})
+    if quien:
+        motivo = aut.con_aval(motivo, quien)
     _rpc("inv_mover", {
-        "p_variante": _entero(d.get("variante_id"), "la variante"),
+        "p_variante": variante,
         "p_tipo": tipo,
-        "p_cantidad": _entero(d.get("cantidad"), "la cantidad", 1, 100_000),
+        "p_cantidad": cantidad,
         "p_usuario": u["id"],
-        "p_motivo": _texto(d.get("motivo"), "el motivo", 300, minimo=3),
+        "p_motivo": motivo,
     })
 
 
@@ -375,9 +387,11 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            u = _entrada(self, "admin")
+            u = _entrada(self, "personal")   # el permiso real se decide por acción, justo debajo
             d = c.leer_json(self, MAX_BODY)
             accion, extra = d.get("accion"), {}
+            if accion not in ("salida", "ajuste") and not c.es_admin(u):
+                raise c.ErrorPeticion(403, "No tienes permiso para esta acción.")
             if accion == "crear":
                 msg = _crear(d, u)
             elif accion == "llegada":

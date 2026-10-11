@@ -1,0 +1,12 @@
+/* Diálogo «Pedir autorización / Ingresar código» — Katoa. Reutiliza las clases fm- de factura-modal.css. */
+.fm-btn.au-primario { color: #fff; background: var(--fm-terracota); border-color: var(--fm-terracota); }
+.fm-btn.au-primario:hover:not(:disabled) { background: var(--fm-terracota-osc); border-color: var(--fm-terracota-osc); }
+.au-pasos { display: grid; gap: 14px; }
+.au-pasos [hidden] { display: none; }
+.au-resumen { margin: 0; padding: 10px 14px; font-size: .95rem; background: var(--fm-crema); border-radius: 10px; overflow-wrap: anywhere; }
+.au-espera { display: flex; align-items: center; gap: 10px; margin: 0; }
+.au-espera i { color: var(--fm-terracota); }
+.au-codigo { width: 100%; padding: .6rem .9rem; font: 600 2rem/1.2 ui-monospace, 'SFMono-Regular', Menlo, monospace; letter-spacing: .5em; text-align: center; color: var(--fm-ink); background: var(--fm-crema); border: 1px solid var(--fm-malva); border-radius: 10px; }
+.au-codigo:focus { outline: none; background: #fff; border-color: var(--fm-terracota); box-shadow: 0 0 0 3px rgba(190, 110, 65, .25); }
+.au-codigo[aria-invalid="true"] { border-color: var(--fm-danger); box-shadow: 0 0 0 3px rgba(180, 35, 24, .15); }
+.au-grande { margin: 0; font: 700 2.6rem/1.1 ui-monospace, 'SFMono-Regular', Menlo, monospace; letter-spacing: .35em; text-align: center; color: var(--fm-terracota-osc, var(--terracota-800, #8A4926)); user-select: all; }

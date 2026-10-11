@@ -9,11 +9,13 @@
  *   3) opcional, para refrescar tu tabla cuando se anula una factura:
  *      document.addEventListener('factura:anulada', (e) => recargarTabla(e.detail.id));
  *
- * Acciones: ver e imprimir PDF, reenviar por WhatsApp, ver comprobante y anular (solo admin; devuelve el stock).
+ * Acciones: ver e imprimir PDF, reenviar por WhatsApp, ver comprobante y anular (devuelve el stock).
+ * Anular: el admin lo hace directo; los demás roles piden un código de un solo uso a un admin (js/autorizacion.js).
  * Servidor: /api/historial (factura, comprobante, anular) y /api/factura-pdf (PDF y WhatsApp).
  * ========================================================================== */
 import { usd, bs } from './utils/format.js';
 import { urlPdfFactura, reenviarWhatsapp } from './utils/api.js';
+import { conAutorizacion } from './autorizacion.js';
 
 const API = '/api/historial';
 const METODOS = {
@@ -205,7 +207,7 @@ function pintar(f) {
     $('#fmPdf').hidden = anulada;
     $('#fmWa').hidden = anulada || !soloDig(f.telefono);
     $('#fmComp').hidden = !f.tiene_comprobante;
-    $('#fmAnular').hidden = anulada || !window.Auth?.tieneNivel('admin');   // el servidor también lo exige
+    $('#fmAnular').hidden = anulada;   // sin permiso de admin se pide un código de autorización (el servidor lo exige)
     if (!$('#fmFactura').open) $('#fmFactura').showModal();
 }
 
@@ -246,6 +248,7 @@ function abrirAnular() {
     $('#fmErr').hidden = true;
     $('#fmMotivo').removeAttribute('aria-invalid');
     $('#fmAnularInfo').textContent = `${factura.id_factura} · ${nombreCliente(factura)} · ${usd(Number(factura.total_usd))}`;
+    $('#fmConfirmar').textContent = window.Auth?.tieneNivel('admin') ? 'Anular factura' : 'Pedir autorización';
     $('#fmAnularDlg').showModal();
     $('#fmMotivo').focus();
 }
@@ -263,7 +266,18 @@ async function confirmarAnular(e) {
     const id = factura.id_factura;
     btn.disabled = true; err.hidden = true;
     try {
-        const d = await api(API, { accion: 'anular', id_factura: id, motivo });
+        let d;
+        if (window.Auth?.tieneNivel('admin')) d = await api(API, { accion: 'anular', id_factura: id, motivo });
+        else {
+            // Sin permiso de admin: solicitud + código de un solo uso. El código se valida al anular, no antes.
+            const resumen = `${id} · ${nombreCliente(factura)} · ${usd(Number(factura.total_usd))}`;
+            $('#fmAnularDlg').close();
+            d = await conAutorizacion({
+                accion: 'anular_factura', objetivo: id, titulo: 'Anular factura', motivo, resumen,
+                ejecutar: (autorizacion) => api(API, { accion: 'anular', id_factura: id, motivo, autorizacion }),
+            });
+            if (!d) return;                      // canceló la solicitud
+        }
         $('#fmAnularDlg').close();
         aviso(d.message);
         pintar((await api(`${API}?modo=factura&id=${encodeURIComponent(id)}`)).data);   // el modal queda mostrando «Anulada»

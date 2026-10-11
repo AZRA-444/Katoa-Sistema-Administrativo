@@ -4,7 +4,9 @@ const CATS = {
     empresa: { nombre: 'Empresa', icono: 'fa-building' },
     sistema: { nombre: 'Sistema', icono: 'fa-gear' },
 };
-const TABS = ['Recibidas', 'Publicar', 'Publicadas'];
+const TABS = ['Recibidas', 'Publicar', 'Publicadas', 'Autorizaciones'];
+const ESTADOS_AUT = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada', usada: 'Usada', vencida: 'Vencida', cancelada: 'Cancelada' };
+const REFRESCO_AUT_MS = 15000;
 
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, props = {}, ...hijos) => { const n = document.createElement(tag); Object.assign(n, props); n.append(...hijos); return n; };
@@ -21,7 +23,7 @@ function relativo(iso) {
     return fechaHora(iso);
 }
 
-const S = { recibidas: [], publicadas: [], totalUsuarios: 0, tab: 'Recibidas', esAdmin: false, esSysadmin: false };
+const S = { aut: { pendientes: [], recientes: [] }, recibidas: [], publicadas: [], totalUsuarios: 0, tab: 'Recibidas', esAdmin: false, esSysadmin: false };
 let avisoT;
 
 function aviso(msg, error = false) {
@@ -216,6 +218,73 @@ async function publicar(ev) {
     } finally { btn.disabled = false; }
 }
 
+//--- AUTORIZACIONES ---//
+function tarjetaAut(a) {
+    const aprobada = a.estado === 'aprobada';
+    const btn = (accion, texto, icono, clase) => {
+        const b = el('button', { type: 'button', className: `btn ${clase}` }, el('i', { className: `fas ${icono}` }), ` ${texto}`);
+        b.dataset.id = a.id; b.dataset.accion = accion;
+        return b;
+    };
+    return el('article', { className: `notif cat-empresa${aprobada ? '' : ' no-leida'}` },
+        el('div', { className: 'notif-ico' }, el('i', { className: 'fas fa-key' })),
+        el('div', { className: 'notif-body' },
+            el('div', { className: 'notif-cab' },
+                el('span', { className: 'cat-badge', textContent: a.accion_nombre }),
+                aprobada ? el('span', { className: 'punto-nueva', textContent: 'Aprobada · código sin usar' }) : '',
+                el('time', { dateTime: a.creada_en, textContent: relativo(a.creada_en), title: fechaHora(a.creada_en) })),
+            el('h3', { textContent: a.resumen }),
+            el('p', { className: 'notif-msg', textContent: `Motivo: ${a.motivo}` }),
+            el('div', { className: 'notif-pie' },
+                el('small', { textContent: `Solicita: ${a.solicitante_nombre || '—'}` }),
+                btn('rechazar', 'Rechazar', 'fa-xmark', 'btn-ghost'),
+                btn('aprobar', aprobada ? 'Generar otro código' : 'Aprobar y generar código', 'fa-key', 'btn-primary'))));
+}
+
+function pintarAutorizaciones() {
+    const { pendientes, recientes } = S.aut;
+    const porAtender = pendientes.filter((a) => a.estado === 'pendiente').length;
+    $('#nAutPend').textContent = porAtender; $('#nAutPend').hidden = porAtender === 0;
+    $('#contAP').textContent = pendientes.length;
+    $('#listaAP').replaceChildren(...pendientes.map(tarjetaAut));
+    $('#vacioAP').hidden = pendientes.length > 0;
+    $('#filasAR').closest('.table-wrap').hidden = recientes.length === 0;
+    $('#vacioAR').hidden = recientes.length > 0;
+    $('#filasAR').replaceChildren(...recientes.map((a) => el('tr', {},
+        el('td', { textContent: fechaHora(a.creada_en) }),
+        el('td', { className: 'celda-titulo' }, el('div', { className: 'titulo-fila', textContent: a.resumen }), el('span', { className: 'sub', textContent: a.motivo })),
+        el('td', { textContent: a.solicitante_nombre || '—' }),
+        el('td', { textContent: a.resuelta_por_nombre || '—' }),
+        el('td', { textContent: ESTADOS_AUT[a.estado] || a.estado }))));
+}
+
+async function cargarAutorizaciones(silencioso = false) {
+    try {
+        const d = await api(`${API}?modo=autorizaciones`);
+        S.aut = { pendientes: d.pendientes, recientes: d.recientes };
+        pintarAutorizaciones();
+    } catch (e) { if (!silencioso) aviso(e.message, true); }
+}
+
+async function resolverAutorizacion(id, accion) {
+    try {
+        if (accion === 'rechazar') {
+            if (!confirm('¿Rechazar esta solicitud?')) return;
+            await api(API, { accion: 'autorizacion_rechazar', id });
+            aviso('Solicitud rechazada.');
+        } else {
+            const d = await api(API, { accion: 'autorizacion_aprobar', id });
+            const hasta = new Date(d.expira_en).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+            $('#codigoInfo').textContent = `${d.resumen} — solicita ${d.solicitante || 'el usuario'}.`;
+            $('#codigoValor').textContent = d.codigo;
+            $('#codigoVence').textContent = `Vale ${d.vigencia_min} minutos (hasta las ${hasta}) y se puede usar una sola vez. No volverá a mostrarse; si lo pierdes, genera otro.`;
+            $('#dlgCodigo').showModal();
+            $('#dlgCodigo').addEventListener('close', () => { $('#codigoValor').textContent = ''; }, { once: true });
+        }
+        await cargarAutorizaciones();
+    } catch (e) { aviso(e.message, true); cargarAutorizaciones(true); }
+}
+
 //--- PESTAÑAS ---//
 function cambiarTab(id) {
     S.tab = id;
@@ -227,6 +296,7 @@ function cambiarTab(id) {
     }
     if (id === 'Publicadas') cargarPublicadas();
     if (id === 'Recibidas') cargarRecibidas();
+    if (id === 'Autorizaciones') cargarAutorizaciones();
 }
 
 //--- INICIO ---//
@@ -257,9 +327,15 @@ function cambiarTab(id) {
         if (!S.esSysadmin) $('#notaCategoria').textContent =
             'La recibirán todos los usuarios. Los avisos de cambios del sistema solo los publica el sysadmin.';
         vistaPrevia();
+        $('#listaAP').addEventListener('click', (e) => {
+            const b = e.target.closest('button[data-accion]');
+            if (b && !b.disabled) { b.disabled = true; resolverAutorizacion(Number(b.dataset.id), b.dataset.accion).finally(() => { b.disabled = false; }); }
+        });
+        cargarAutorizaciones(true);     // para el número de la pestaña
+        setInterval(() => { if (!document.hidden) cargarAutorizaciones(true); }, REFRESCO_AUT_MS);
     }
 
     // Si se abre con #publicar (p. ej. desde el inicio) cae directo en la pestaña de publicación
-    cambiarTab(S.esAdmin && location.hash === '#publicar' ? 'Publicar' : 'Recibidas');
+    cambiarTab(!S.esAdmin ? 'Recibidas' : location.hash === '#publicar' ? 'Publicar' : location.hash === '#autorizaciones' ? 'Autorizaciones' : 'Recibidas');
     document.body.classList.add('is-ready');
 })();

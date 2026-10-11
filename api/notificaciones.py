@@ -14,6 +14,14 @@ Categorías:
   sistema -> cambios en el sistema.     SOLO la publica sysadmin.
 
 Tablas: `notificaciones` y `notificaciones_lecturas` (ver sql/notificaciones.sql).
+
+Autorizaciones con código de un solo uso (lógica en api/_autorizaciones.py, tabla en sql/autorizaciones.sql).
+Viven aquí porque el plan Hobby de Vercel limita el número de funciones:
+GET ?modo=autorizacion&id=N   -> estado de UNA solicitud (el solicitante ve solo las suyas; nunca incluye el código)
+GET ?modo=autorizaciones      -> (admin y sysadmin) {pendientes, recientes}
+POST {accion: "autorizacion_solicitar", accion_autorizar, objetivo, detalle, motivo}   (quien NO es admin)
+POST {accion: "autorizacion_cancelar", id}                                              (el solicitante)
+POST {accion: "autorizacion_aprobar" | "autorizacion_rechazar", id}                     (admin y sysadmin)
 """
 import os
 import sys
@@ -24,6 +32,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
+import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
 
 MAX_BODY = 8 * 1024
@@ -233,7 +242,16 @@ class handler(BaseHTTPRequestHandler):
             modo = (parse_qs(urlparse(self.path).query).get("modo", [""])[0] or "").strip()
             if modo == "contador":
                 filas, leidas = _no_leidas(u)
-                return self._ok(no_leidas=sum(1 for i in _ids(filas) if i not in leidas))
+                extra = {"autorizaciones_pendientes": aut.contar_pendientes()} if _es_admin(u) else {}
+                return self._ok(no_leidas=sum(1 for i in _ids(filas) if i not in leidas), **extra)
+            if modo == "autorizacion":
+                i = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                if not i.isdigit():
+                    raise c.ErrorPeticion(400, "Autorización inválida.")
+                return self._ok(data=aut.estado(u, int(i)))
+            if modo == "autorizaciones":
+                pendientes, recientes = aut.listar(u)
+                return self._ok(pendientes=pendientes, recientes=recientes)
             if modo == "publicadas":
                 if not _es_admin(u):
                     raise c.ErrorPeticion(403, "No tienes permiso para esta sección.")
@@ -264,6 +282,16 @@ class handler(BaseHTTPRequestHandler):
             elif accion == "eliminar":
                 _eliminar(d, u)
                 self._ok(message="Notificación eliminada.")
+            elif accion == "autorizacion_solicitar":
+                self._ok(message="Solicitud enviada a los administradores.", **aut.solicitar(u, d))
+            elif accion == "autorizacion_cancelar":
+                aut.cancelar(u, d)
+                self._ok(message="Solicitud cancelada.")
+            elif accion == "autorizacion_aprobar":
+                self._ok(**aut.aprobar(u, d))
+            elif accion == "autorizacion_rechazar":
+                aut.rechazar(u, d)
+                self._ok(message="Solicitud rechazada.")
             else:
                 raise c.ErrorPeticion(400, "Acción no válida.")
         except c.ErrorPeticion as e:

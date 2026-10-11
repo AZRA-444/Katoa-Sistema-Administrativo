@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="../css/inventario.css" />
     <link rel="stylesheet" href="../css/administrador.css" />
     <link rel="stylesheet" href="../css/notificaciones.css" />
+    <link rel="stylesheet" href="../css/autorizacion.css" />
     <link rel="icon" href="../img/favicon.ico" />
     <script src="../../js/auth-guard.js"></script>
     <script type="module" src="../../js/notificaciones.js"></script>
@@ -37,6 +38,8 @@
                 Recibidas <span class="badge warn" id="nNoLeidas" hidden>0</span></button>
             <button type="button" class="tab" role="tab" id="tabPublicar" aria-selected="false" aria-controls="panPublicar" data-admin-only>Publicar</button>
             <button type="button" class="tab" role="tab" id="tabPublicadas" aria-selected="false" aria-controls="panPublicadas" data-admin-only>Publicadas</button>
+            <button type="button" class="tab" role="tab" id="tabAutorizaciones" aria-selected="false" aria-controls="panAutorizaciones" data-admin-only>
+                Autorizaciones <span class="badge warn" id="nAutPend" hidden>0</span></button>
         </nav>
 
         <!-- RECIBIDAS (todos los roles) -->
@@ -99,6 +102,23 @@
                 <div class="empty" id="vacioP" hidden><i class="fas fa-bullhorn"></i><p>Aún no has publicado notificaciones.</p></div>
             </div>
         </section>
+
+        <!-- AUTORIZACIONES (admin y sysadmin): solicitudes de otros roles para operaciones que no pueden hacer solos -->
+        <section id="panAutorizaciones" role="tabpanel" aria-labelledby="tabAutorizaciones" class="adm-sec" hidden data-admin-only>
+            <div class="panel">
+                <h2>Por atender <span class="count" id="contAP">0</span></h2>
+                <p class="muted">Al aprobar se genera un código de 6 dígitos de un solo uso (vale 10 minutos). Se muestra una sola vez: díselo a quien lo pidió en persona o por WhatsApp.</p>
+                <div class="notif-lista" id="listaAP" aria-live="polite"></div>
+                <div class="empty" id="vacioAP" hidden><i class="fas fa-key"></i><p>No hay solicitudes pendientes.</p></div>
+            </div>
+            <div class="panel">
+                <h2>Últimos movimientos <span class="muted">Últimos 30 días</span></h2>
+                <div class="table-wrap"><table class="tabla-resp">
+                    <thead><tr><th>Fecha</th><th>Operación</th><th>Solicitó</th><th>Resolvió</th><th>Estado</th></tr></thead>
+                    <tbody id="filasAR"></tbody></table></div>
+                <div class="empty" id="vacioAR" hidden><i class="fas fa-clock-rotate-left"></i><p>Todavía no hay movimientos.</p></div>
+            </div>
+        </section>
     </main>
 
     <p id="aviso" class="aviso" role="status" hidden></p>
@@ -110,6 +130,16 @@
             <div class="notif-lista" id="resumenConf"></div>
             <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Revisar</button>
                 <button type="submit" class="btn btn-primary" id="btnConfirmar">Sí, publicar</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg dlg-sm" id="dlgCodigo" aria-labelledby="hCodigo">
+        <form method="dialog" novalidate>
+            <h2 id="hCodigo">Código de autorización</h2>
+            <p class="muted" id="codigoInfo"></p>
+            <p class="au-grande" id="codigoValor" aria-live="polite"></p>
+            <p class="muted" id="codigoVence"></p>
+            <div class="dlg-acts"><button type="submit" class="btn btn-primary">Listo, ya se lo dije</button></div>
         </form>
     </dialog>
 </body>

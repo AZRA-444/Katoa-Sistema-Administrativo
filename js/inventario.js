@@ -1,4 +1,5 @@
 import { usd, round2 } from './utils/format.js';
+import { conAutorizacion } from './autorizacion.js';
 
 const API = '/api/inventario';
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -157,7 +158,8 @@ function filaProducto(p) {
     const nombre = celda('Producto', { className: 'celda-titulo' }, el('div', { className: 'prod-nombre', textContent: nombreVar(p) }),
         el('div', { className: 'muted', textContent: [p.marca, p.seccion].filter(Boolean).join(' - ') }));
     const acts = [boton('fas fa-clock-rotate-left', 'Ver kardex', () => verKardex(p))];
-    if (state.admin) acts.unshift(
+    // Salida y ajuste los ve todo el que entra aquí: quien no es admin los hace con un código de autorización.
+    acts.unshift(
         boton('fas fa-arrow-right-from-bracket', 'Registrar salida', () => abrirMov(p, 'salida')),
         boton('fas fa-sliders', 'Ajustar stock', () => abrirMov(p, 'ajuste')));
     const tr = el('tr', est ? { className: est[0] } : {}, nombre, celda('Código', { textContent: p.codigo_barras }), stock, celdaPrecios(p));
@@ -453,7 +455,7 @@ function abrirMov(p, tipo) {
     movActual = { p, tipo };
     const ajuste = tipo === 'ajuste';
     $('#hMov').textContent = ajuste ? 'Ajustar stock' : 'Registrar salida';
-    $('#btnMov').textContent = ajuste ? 'Registrar ajuste' : 'Registrar salida';
+    $('#btnMov').textContent = !state.admin ? 'Pedir autorización' : ajuste ? 'Registrar ajuste' : 'Registrar salida';
     $('#movProducto').textContent = `${nombreVar(p)} — stock actual: ${p.cantidad}`;
     $('#filaSentido').hidden = !ajuste;
     $('#mMotivo').replaceChildren(...MOTIVOS[tipo].map((m) => el('option', { value: m, textContent: m })));
@@ -468,11 +470,31 @@ async function guardarMov(e) {
     const cant = Number($('#mCant').value), detalle = $('#mDetalle').value.trim(), motivo = $('#mMotivo').value;
     if (!Number.isInteger(cant) || cant < 1) return falla(err, 'La cantidad debe ser un entero mayor que cero.', $('#mCant'));
     if (motivo === 'Otro' && detalle.length < 3) return falla(err, 'Describe el motivo en el detalle.', $('#mDetalle'));
-    await enviar(e.target, err, {
+    const cuerpo = {
         accion: movActual.tipo, variante_id: movActual.p.id, cantidad: cant,
         motivo: motivo === 'Otro' ? detalle : detalle ? `${motivo} - ${detalle}` : motivo,
         ...(movActual.tipo === 'ajuste' ? { sentido: $('#mSentido').value } : {}),
-    });
+    };
+    if (state.admin) return enviar(e.target, err, cuerpo);
+    if (restaStock() && Number(movActual.p.cantidad) - cant < 0) return falla(err, `Solo hay ${movActual.p.cantidad} en stock: no se pueden restar ${cant}.`, $('#mCant'));
+    await enviarConAutorizacion(e.target, cuerpo);
+}
+
+/** Quien no es admin: solicita el código a un admin y la operación se ejecuta al escribirlo (js/autorizacion.js). */
+async function enviarConAutorizacion(form, cuerpo) {
+    const { p, tipo } = movActual, sentido = tipo === 'ajuste' ? cuerpo.sentido : 'salida';
+    const resumen = `${tipo === 'ajuste' ? `Ajuste de ${sentido}` : 'Salida'} de ${cuerpo.cantidad} × ${nombreVar(p)} (stock actual: ${p.cantidad})`;
+    form.closest('dialog').close();
+    try {
+        const d = await conAutorizacion({
+            accion: tipo, objetivo: p.id, detalle: { cantidad: cuerpo.cantidad, sentido },
+            titulo: tipo === 'ajuste' ? 'Ajustar stock' : 'Registrar salida', motivo: cuerpo.motivo, resumen,
+            ejecutar: (autorizacion) => api(API, { ...cuerpo, autorizacion }),
+        });
+        if (!d) return;                          // canceló la solicitud
+        aviso(d.message || 'Listo.');
+        await Promise.all([cargarLista(), $('#panKardex').hidden ? null : cargarKardex()]);
+    } catch (x) { aviso(x.message, true); }
 }
 
 //--- ENVÍO COMÚN ---//

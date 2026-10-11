@@ -5,8 +5,8 @@ GET (encargado, admin, sysadmin):
     ?modo=comprobante&id=FAC-...      -> imagen del comprobante de pago (bucket privado, se sirve por aquí)
     ?modo=factura&id=FAC-...          -> UNA factura con sus productos (la usa el modal «Vista previa»,
                                          p. ej. desde la tabla de ventas del Administrador)
-POST (solo admin y sysadmin), JSON:
-    {"accion": "anular", "id_factura": "...", "motivo": "..."}
+POST (admin y sysadmin; el resto de roles solo con un código de autorización válido), JSON:
+    {"accion": "anular", "id_factura": "...", "motivo": "...", "autorizacion": {"id": 1, "codigo": "123456"}}
         Marca la factura como anulada y devuelve el stock por el kardex (SQL: anular_factura), todo en una
         transacción. La factura NO se borra.
 
@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
+import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
 
 MAX_BODY = 4 * 1024
@@ -132,6 +133,10 @@ def _anular(d, u):
     motivo = re.sub(r"\s+", " ", str(d.get("motivo") or "")).strip()
     if not 3 <= len(motivo) <= 300:
         raise c.ErrorPeticion(400, "Escribe el motivo de la anulación (entre 3 y 300 caracteres).")
+    # Quien no es admin necesita un código aprobado para ESTA factura (se consume aquí, antes de anular).
+    quien = aut.exigir(u, d.get("autorizacion"), "anular_factura", id_factura, {})
+    if quien:
+        motivo = aut.con_aval(motivo, quien)
     r = c._http.post(f"{c.SUPABASE_URL}/rest/v1/rpc/anular_factura",
                      json={"p_id": id_factura, "p_motivo": motivo, "p_usuario": u["id"]},
                      headers=c._hdr_servicio(), timeout=c.TIMEOUT * 2)
@@ -186,7 +191,7 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            u = _entrada(self, "admin")
+            u = _entrada(self, "personal")   # el permiso real (admin o código) se exige en _anular
             d = c.leer_json(self, MAX_BODY)
             if d.get("accion") != "anular":
                 raise c.ErrorPeticion(400, "Acción no válida.")
