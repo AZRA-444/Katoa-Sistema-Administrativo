@@ -2,7 +2,8 @@
 
 GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias}
 GET  ?modo=dev_lista | dev_buscar | dev_factura  -> devoluciones de productos (ver api/_devoluciones.py)
-POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar", ...}
+GET  ?modo=com_resumen&mes=AAAA-MM               -> comisiones de vendedores (ver api/_comisiones.py)
+POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar", ...}
 
 Ventas: tabla `facturas`. Costo de ventas: `inv_kardex` (SALIDA_VENTA - DEVOLUCION_CLIENTE).
 Egresos: tabla `egresos` (ver sql/egresos.sql). Las fechas del mes se calculan en hora de Venezuela (UTC-4).
@@ -17,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
+import _comisiones as com  # noqa: E402
 import _comun as c  # noqa: E402
 import _devoluciones as dev  # noqa: E402
 
@@ -42,6 +44,12 @@ def _fallo(r, tabla):
 def _rango(mes):
     y, m = int(mes[:4]), int(mes[5:])
     return date(y, m, 1), date(y + (m == 12), m % 12 + 1, 1)
+
+
+def _ini_fin(mes):
+    if not MES_RE.match(mes or ""):
+        raise c.ErrorPeticion(400, "Mes inválido.")
+    return _rango(mes)
 
 
 def _ventas(ini, fin):
@@ -158,6 +166,8 @@ class handler(BaseHTTPRequestHandler):
         try:
             _entrada(self)
             qs = parse_qs(urlparse(self.path).query)
+            if (qs.get("modo", [""])[0] or "").startswith("com_"):
+                return self._ok(**com.leer(qs, _ini_fin, _ventas))
             if qs.get("modo"):
                 return self._ok(**dev.leer(qs))
             mes = (qs.get("mes", [""])[0] or "").strip()
@@ -182,6 +192,12 @@ class handler(BaseHTTPRequestHandler):
             elif d.get("accion") == "egreso_eliminar":
                 _eliminar(d)
                 self._ok(message="Egreso eliminado.")
+            elif d.get("accion") == "com_config":
+                com.configurar(d, u)
+                self._ok(message="Porcentaje guardado.")
+            elif d.get("accion") == "com_pagar":
+                com.pagar(d, u, _ini_fin, _ventas)
+                self._ok(message="Pago de comisión registrado y egreso creado.")
             elif d.get("accion") == "devolucion_registrar":
                 resultado, ajuste = dev.registrar(d, u)
                 msg = "Devolución registrada."

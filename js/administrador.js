@@ -16,7 +16,7 @@ const fechaHora = (iso) => new Date(iso).toLocaleString('es-VE', { dateStyle: 's
 const fechaDia = (d) => d.split('-').reverse().join('/');
 const suma = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
 
-const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], verV: PAGINA, verE: PAGINA };
+const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], verV: PAGINA, verE: PAGINA, com: null, pct: null, pago: null };
 let avisoT;
 
 function aviso(msg, error = false) {
@@ -203,7 +203,88 @@ function llenar(sel, valores, etiqueta = (x) => x) {
 }
 function pintar() { pintarVentas(); pintarEgresos(); pintarFinanzas(); }
 
+//--- COMISIONES ---//
+function pintarComisiones() {
+    const d = S.com, cuerpo = $('#filasC');
+    $('#errCom').hidden = true;
+    if (!d) return;
+    $('#comDefecto').textContent = `${d.porcentaje_defecto} % (se aplica a los vendedores sin porcentaje propio)`;
+    kpis($('#kCom'), [
+        ['Comisiones del mes', usd(d.totales.comision_usd), `${d.vendedores.length} vendedor${d.vendedores.length === 1 ? '' : 'es'}`],
+        ['Pagado', usd(d.totales.pagado_usd), null, 'pos'],
+        ['Pendiente de pago', usd(d.totales.pendiente_usd), null, d.totales.pendiente_usd > 0 ? 'neg' : ''],
+    ]);
+    $('#contC').textContent = String(d.vendedores.length);
+    $('#vacioC').hidden = d.vendedores.length > 0;
+    $('#filasC').closest('.table-wrap').hidden = !d.vendedores.length;
+    cuerpo.replaceChildren(...d.vendedores.map((v) => {
+        const td = (t, n) => el('td', { className: n ? 'n' : '', textContent: t });
+        const pct = el('td', { className: 'n', textContent: `${v.porcentaje} %${v.porcentaje_propio ? '' : '*'}` });
+        const bPct = el('button', { type: 'button', className: 'btn btn-ghost btn-mini', textContent: '%' });
+        bPct.title = `Cambiar el porcentaje de ${v.vendedor}`; bPct.dataset.accion = 'pct'; bPct.dataset.v = v.vendedor;
+        const bPagar = el('button', { type: 'button', className: 'btn btn-primary btn-mini', textContent: 'Pagar' });
+        bPagar.dataset.accion = 'pagar'; bPagar.dataset.v = v.vendedor; bPagar.disabled = !(v.pendiente_usd > 0);
+        const nom = el('td', {}, el('strong', { textContent: v.vendedor }),
+            v.credito_pendiente_usd > 0 ? el('small', { className: 'muted', textContent: ` · crédito sin cobrar ${usd(v.credito_pendiente_usd)}` }) : '');
+        return el('tr', {}, nom, td(usd(v.ventas_usd), 1), td(usd(v.devoluciones_usd), 1), td(usd(v.abonos_usd), 1), td(usd(v.base_usd), 1),
+            pct, td(usd(v.comision_usd), 1), td(usd(v.pagado_usd), 1), td(usd(v.pendiente_usd), 1), el('td', { className: 'c' }, bPct, ' ', bPagar));
+    }));
+}
+
+async function cargarComisiones() {
+    try {
+        S.com = (await api(`${API}?modo=com_resumen&mes=${S.mes}`));
+        pintarComisiones();
+    } catch (e) {
+        S.com = null;
+        $('#errCom').textContent = e.message; $('#errCom').hidden = false;
+    }
+}
+
+function abrirPct(vendedor) {
+    const v = S.com.vendedores.find((x) => x.vendedor === vendedor);
+    const defecto = vendedor === '*';
+    S.pct = vendedor;
+    $('#hPct').textContent = defecto ? 'Porcentaje por defecto' : `Porcentaje de ${vendedor}`;
+    $('#pctSub').textContent = defecto ? 'Se aplica a todos los vendedores que no tengan uno propio.' : `Hoy: ${v.porcentaje} %${v.porcentaje_propio ? '' : ' (por defecto)'}`;
+    $('#pValor').value = defecto ? S.com.porcentaje_defecto : v.porcentaje;
+    $('#btnQuitarPct').hidden = defecto || !v.porcentaje_propio;
+    $('#errPct').hidden = true; $('#dlgPct').showModal();
+}
+
+async function guardarPct(ev, quitar = false) {
+    ev?.preventDefault();
+    const err = $('#errPct'), valor = $('#pValor').value === '' ? NaN : Number($('#pValor').value);
+    if (!quitar && !(valor >= 0 && valor <= 100)) { err.textContent = 'Escribe un porcentaje entre 0 y 100.'; err.hidden = false; return; }
+    try {
+        await api(API, { accion: 'com_config', vendedor: S.pct, porcentaje: quitar ? null : valor });
+        $('#dlgPct').close(); aviso('Porcentaje guardado.'); cargarComisiones();
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+}
+
+function abrirPago(vendedor) {
+    const v = S.com.vendedores.find((x) => x.vendedor === vendedor);
+    S.pago = vendedor;
+    $('#pagoSub').textContent = `${vendedor} · ${S.mes} · pendiente ${usd(v.pendiente_usd)}`;
+    $('#cMonto').value = v.pendiente_usd; $('#cMonto').max = v.pendiente_usd;
+    $('#errPago').hidden = true; $('#dlgPagoCom').showModal();
+}
+
+async function guardarPago(ev) {
+    ev.preventDefault();
+    const err = $('#errPago'), monto = Number($('#cMonto').value);
+    if (!(monto > 0)) { err.textContent = 'Indica un monto mayor que cero.'; err.hidden = false; return; }
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    try {
+        await api(API, { accion: 'com_pagar', mes: S.mes, vendedor: S.pago, monto_usd: monto });
+        $('#dlgPagoCom').close(); aviso('Pago de comisión registrado.');
+        cargar();                       // refresca también egresos y finanzas
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+    finally { if (btn) btn.disabled = false; }
+}
+
 async function cargar() {
+    cargarComisiones();
     try {
         const d = await api(`${API}?mes=${S.mes}`);
         Object.assign(S, { ventas: d.ventas, egresos: d.egresos, costo: d.costo_ventas, cats: d.categorias, verV: PAGINA, verE: PAGINA });
@@ -216,7 +297,7 @@ async function cargar() {
 }
 
 function cambiarTab(id) {
-    for (const [t, p] of [['Ventas', 'panVentas'], ['Egresos', 'panEgresos'], ['Finanzas', 'panFinanzas']]) {
+    for (const [t, p] of [['Ventas', 'panVentas'], ['Egresos', 'panEgresos'], ['Finanzas', 'panFinanzas'], ['Comisiones', 'panComisiones']]) {
         $(`#tab${t}`).setAttribute('aria-selected', String(t === id));
         $(`#${p}`).hidden = t !== id;
     }
@@ -250,6 +331,17 @@ async function guardarEgreso(ev) {
     $('#tabVentas').addEventListener('click', () => cambiarTab('Ventas'));
     $('#tabEgresos').addEventListener('click', () => cambiarTab('Egresos'));
     $('#tabFinanzas').addEventListener('click', () => cambiarTab('Finanzas'));
+    $('#tabComisiones').addEventListener('click', () => cambiarTab('Comisiones'));
+    $('#btnDefecto').addEventListener('click', () => S.com && abrirPct('*'));
+    $('#formPct').addEventListener('submit', (ev) => guardarPct(ev));
+    $('#btnQuitarPct').addEventListener('click', () => guardarPct(null, true));
+    $('#formPagoCom').addEventListener('submit', guardarPago);
+    for (const d of ['#dlgPct', '#dlgPagoCom']) $(`${d} [data-cerrar]`).addEventListener('click', () => $(d).close());
+    $('#filasC').addEventListener('click', (ev) => {
+        const b = ev.target.closest('button[data-accion]');
+        if (!b || !S.com) return;
+        if (b.dataset.accion === 'pct') abrirPct(b.dataset.v); else abrirPago(b.dataset.v);
+    });
     for (const id of ['#fBuscar', '#fMetodo', '#fVendedor']) $(id).addEventListener('input', () => { S.verV = PAGINA; pintarVentas(); });
     for (const id of ['#fBuscarE', '#fCat']) $(id).addEventListener('input', () => { S.verE = PAGINA; pintarEgresos(); });
     $('#masV').addEventListener('click', () => { S.verV += PAGINA; pintarVentas(); });

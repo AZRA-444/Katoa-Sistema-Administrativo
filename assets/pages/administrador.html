@@ -34,6 +34,7 @@
             <button type="button" class="tab" role="tab" id="tabVentas" aria-selected="true" aria-controls="panVentas">Ventas</button>
             <button type="button" class="tab" role="tab" id="tabEgresos" aria-selected="false" aria-controls="panEgresos">Egresos</button>
             <button type="button" class="tab" role="tab" id="tabFinanzas" aria-selected="false" aria-controls="panFinanzas">Finanzas</button>
+            <button type="button" class="tab" role="tab" id="tabComisiones" aria-selected="false" aria-controls="panComisiones">Comisiones</button>
         </nav>
 
         <!-- VENTAS -->
@@ -102,6 +103,29 @@
                 <div class="empty" id="vacioG" hidden><i class="fas fa-wallet"></i><p>No hay gastos registrados este mes.</p></div>
             </div>
         </section>
+
+        <!-- COMISIONES -->
+        <section id="panComisiones" role="tabpanel" aria-labelledby="tabComisiones" class="adm-sec" hidden>
+            <div class="panel">
+                <div class="tools">
+                    <div class="field grow"><span class="lbl">Porcentaje por defecto</span>
+                        <p class="muted" id="comDefecto">—</p></div>
+                    <button type="button" class="btn btn-ghost" id="btnDefecto"><i class="fas fa-percent"></i> Cambiar porcentaje por defecto</button>
+                </div>
+                <div class="kpis" id="kCom"></div>
+                <p class="muted com-nota">Se comisiona lo cobrado en el mes: ventas no a crédito, menos reembolsos de devoluciones, más abonos de crédito recibidos.
+                    Las ventas a crédito sin cobrar no comisionan hasta que se cobran.</p>
+            </div>
+            <div class="panel">
+                <h2>Comisiones por vendedor <span class="count" id="contC">0</span></h2>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>Vendedor</th><th class="n">Ventas</th><th class="n">Devoluciones</th><th class="n">Abonos crédito</th><th class="n">Base</th>
+                        <th class="n">%</th><th class="n">Comisión</th><th class="n">Pagado</th><th class="n">Pendiente</th><th class="c">Acciones</th></tr></thead>
+                    <tbody id="filasC"></tbody></table></div>
+                <div class="empty" id="vacioC" hidden><i class="fas fa-percent"></i><p>No hay ventas ni cobros en este mes.</p></div>
+                <p class="form-error" id="errCom" role="alert" hidden></p>
+            </div>
+        </section>
     </main>
 
     <p id="aviso" class="aviso" role="status" hidden></p>
@@ -116,6 +140,27 @@
             <div class="field"><label for="eMonto">Monto (USD)</label><input id="eMonto" type="number" min="0.01" step="0.01" inputmode="decimal" required /></div>
             <p class="form-error" id="errEg" role="alert" hidden></p>
             <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Guardar egreso</button></div>
+        </form>
+    </dialog>
+    <dialog class="dlg dlg-sm" id="dlgPct" aria-labelledby="hPct">
+        <form id="formPct" novalidate>
+            <h2 id="hPct">Porcentaje</h2>
+            <p class="muted" id="pctSub"></p>
+            <div class="field"><label for="pValor">Porcentaje de comisión (%)</label><input id="pValor" type="number" min="0" max="100" step="0.01" inputmode="decimal" /></div>
+            <p class="form-error" id="errPct" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" id="btnQuitarPct" hidden>Usar el de por defecto</button>
+                <button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg dlg-sm" id="dlgPagoCom" aria-labelledby="hPagoCom">
+        <form id="formPagoCom" novalidate>
+            <h2 id="hPagoCom">Pagar comisión</h2>
+            <p class="muted" id="pagoSub"></p>
+            <div class="field"><label for="cMonto">Monto a pagar (USD)</label><input id="cMonto" type="number" min="0.01" step="0.01" inputmode="decimal" /></div>
+            <p class="muted">Se registra como egreso en la categoría «Comisiones».</p>
+            <p class="form-error" id="errPago" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Registrar pago</button></div>
         </form>
     </dialog>
 </body>

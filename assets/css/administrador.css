@@ -6,6 +6,10 @@
 .panel h2 .muted { margin-left: auto; font: 500 .9rem var(--font-body); }
 .mas { justify-self: center; margin-top: 12px; }
 
+/* Comisiones */
+.com-nota { margin-top: 10px; font-size: .85rem; }
+#filasC td small { font-size: .78rem; }
+
 /* Indicadores */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .kpi { padding: 14px 16px; background: var(--crema-soft); border: 1px solid var(--line); border-radius: 12px; }
