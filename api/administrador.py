@@ -3,7 +3,8 @@
 GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias}
 GET  ?modo=dev_lista | dev_buscar | dev_factura  -> devoluciones de productos (ver api/_devoluciones.py)
 GET  ?modo=com_resumen&mes=AAAA-MM               -> comisiones de vendedores (ver api/_comisiones.py)
-POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar", ...}
+GET  ?modo=usr_lista                             -> usuarios y roles que se pueden asignar (ver api/_usuarios.py)
+POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar" | "usuario_crear", ...}
 
 Ventas: tabla `facturas`. Costo de ventas: `inv_kardex` (SALIDA_VENTA - DEVOLUCION_CLIENTE).
 Egresos: tabla `egresos` (ver sql/egresos.sql). Las fechas del mes se calculan en hora de Venezuela (UTC-4).
@@ -21,6 +22,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import _comisiones as com  # noqa: E402
 import _comun as c  # noqa: E402
 import _devoluciones as dev  # noqa: E402
+import _usuarios as usr  # noqa: E402
 
 MAX_BODY = 32 * 1024     # las devoluciones pueden traer hasta 150 líneas
 LIMITE = 5000
@@ -164,8 +166,10 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            _entrada(self)
+            u = _entrada(self)
             qs = parse_qs(urlparse(self.path).query)
+            if (qs.get("modo", [""])[0] or "").startswith("usr_"):
+                return self._ok(**usr.leer(u))
             if (qs.get("modo", [""])[0] or "").startswith("com_"):
                 return self._ok(**com.leer(qs, _ini_fin, _ventas))
             if qs.get("modo"):
@@ -198,6 +202,8 @@ class handler(BaseHTTPRequestHandler):
             elif d.get("accion") == "com_pagar":
                 com.pagar(d, u, _ini_fin, _ventas)
                 self._ok(message="Pago de comisión registrado y egreso creado.")
+            elif d.get("accion") == "usuario_crear":
+                self._ok(usuario=usr.crear(d, u), message="Usuario registrado.")
             elif d.get("accion") == "devolucion_registrar":
                 resultado, ajuste = dev.registrar(d, u)
                 msg = "Devolución registrada."
