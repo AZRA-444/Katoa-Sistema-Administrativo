@@ -16,7 +16,7 @@ const fechaHora = (iso) => new Date(iso).toLocaleString('es-VE', { dateStyle: 's
 const fechaDia = (d) => d.split('-').reverse().join('/');
 const suma = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
 
-const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], verV: PAGINA, verE: PAGINA, com: null, pct: null, pago: null };
+const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], verV: PAGINA, verE: PAGINA, com: null, pct: null, pago: null, usr: null };
 let avisoT;
 
 function aviso(msg, error = false) {
@@ -297,10 +297,65 @@ async function cargar() {
 }
 
 function cambiarTab(id) {
-    for (const [t, p] of [['Ventas', 'panVentas'], ['Egresos', 'panEgresos'], ['Finanzas', 'panFinanzas'], ['Comisiones', 'panComisiones']]) {
+    for (const [t, p] of [['Ventas', 'panVentas'], ['Egresos', 'panEgresos'], ['Finanzas', 'panFinanzas'], ['Comisiones', 'panComisiones'], ['Usuarios', 'panUsuarios']]) {
         $(`#tab${t}`).setAttribute('aria-selected', String(t === id));
         $(`#${p}`).hidden = t !== id;
     }
+    if (id === 'Usuarios') cargarUsuarios();
+}
+
+//--- USUARIOS ---//
+const ROLES = { personal: 'Personal', encargado: 'Encargado', admin: 'Administrador', sysadmin: 'Sysadmin' };
+
+async function cargarUsuarios() {
+    try { S.usr = await api(`${API}?modo=usr_lista`); pintarUsuarios(); }
+    catch (e) { aviso(e.message, true); }
+}
+
+function pintarUsuarios() {
+    const u = S.usr.usuarios;
+    $('#contU').textContent = u.length;
+    $('#vacioU').hidden = u.length > 0;
+    $('#filasU').closest('.table-wrap').hidden = !u.length;
+    $('#filasU').replaceChildren(...u.map((x) => el('tr', {},
+        el('td', { textContent: x.nombre || '—' }),
+        el('td', { textContent: x.email || '—' }),
+        el('td', {}, el('span', { className: 'pill', textContent: ROLES[x.rol] || x.rol || '—' })),
+        el('td', {}, x.activo ? 'Activo' : 'Inactivo',
+            x.debe_cambiar_clave ? el('span', { className: 'sub', textContent: 'Pendiente de cambiar su clave' }) : ''))));
+}
+
+function abrirUsuario() {
+    if (!S.usr) return;
+    if (!S.usr.roles.length) return aviso('No tienes permiso para registrar usuarios.', true);
+    $('#formUsuario').reset(); $('#errUsr').hidden = true;
+    $('#uRol').replaceChildren(...S.usr.roles.map((r) => el('option', { value: r, textContent: ROLES[r] || r })));
+    $('#uRol').value = S.usr.roles[0];
+    $('#dlgUsuario').showModal();
+}
+
+async function guardarUsuario(ev) {
+    ev.preventDefault();
+    const err = $('#errUsr'), nombre = $('#uNombre').value.trim(), email = $('#uEmail').value.trim();
+    const error = (m) => { err.textContent = m; err.hidden = false; };
+    if (nombre.length < 2) return error('Escribe el nombre (mínimo 2 caracteres).');
+    if (!$('#uEmail').checkValidity() || !email) return error('Escribe un correo válido.');
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    try {
+        const d = await api(API, { accion: 'usuario_crear', nombre, email, rol: $('#uRol').value });
+        $('#dlgUsuario').close();
+        $('#claveSub').textContent = `${d.usuario.nombre} · ${d.usuario.email} · ${ROLES[d.usuario.rol] || d.usuario.rol}`;
+        $('#claveTmp').value = d.usuario.clave_temporal;
+        $('#dlgClave').showModal();
+        cargarUsuarios();
+    } catch (e) { error(e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+
+async function copiarClave() {
+    const campo = $('#claveTmp');
+    try { await navigator.clipboard.writeText(campo.value); aviso('Clave copiada.'); }
+    catch { campo.select(); aviso('Selecciona y copia la clave manualmente.', true); }
 }
 
 //--- NUEVO / ELIMINAR EGRESO ---//
@@ -332,6 +387,14 @@ async function guardarEgreso(ev) {
     $('#tabEgresos').addEventListener('click', () => cambiarTab('Egresos'));
     $('#tabFinanzas').addEventListener('click', () => cambiarTab('Finanzas'));
     $('#tabComisiones').addEventListener('click', () => cambiarTab('Comisiones'));
+    $('#tabUsuarios').addEventListener('click', () => cambiarTab('Usuarios'));
+    $('#btnUsuario').addEventListener('click', abrirUsuario);
+    $('#formUsuario').addEventListener('submit', guardarUsuario);
+    $('#dlgUsuario [data-cerrar]').addEventListener('click', () => $('#dlgUsuario').close());
+    $('#btnCopiarClave').addEventListener('click', copiarClave);
+    // La clave solo se ve una vez: Esc no cierra el diálogo por accidente; se cierra con «Ya la copié».
+    $('#dlgClave').addEventListener('cancel', (ev) => ev.preventDefault());
+    $('#dlgClave').addEventListener('close', () => { $('#claveTmp').value = ''; });
     $('#btnDefecto').addEventListener('click', () => S.com && abrirPct('*'));
     $('#formPct').addEventListener('submit', (ev) => guardarPct(ev));
     $('#btnQuitarPct').addEventListener('click', () => guardarPct(null, true));
