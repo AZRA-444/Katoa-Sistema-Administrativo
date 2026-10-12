@@ -35,6 +35,7 @@
             <button type="button" class="tab" role="tab" id="tabEgresos" aria-selected="false" aria-controls="panEgresos">Egresos</button>
             <button type="button" class="tab" role="tab" id="tabFinanzas" aria-selected="false" aria-controls="panFinanzas">Finanzas</button>
             <button type="button" class="tab" role="tab" id="tabComisiones" aria-selected="false" aria-controls="panComisiones">Comisiones</button>
+            <button type="button" class="tab" role="tab" id="tabUsuarios" aria-selected="false" aria-controls="panUsuarios">Usuarios</button>
         </nav>
 
         <!-- VENTAS -->
@@ -126,6 +127,24 @@
                 <p class="form-error" id="errCom" role="alert" hidden></p>
             </div>
         </section>
+
+        <!-- USUARIOS -->
+        <section id="panUsuarios" role="tabpanel" aria-labelledby="tabUsuarios" class="adm-sec" hidden>
+            <div class="panel">
+                <div class="tools">
+                    <div class="field grow"><span class="lbl">Usuarios del sistema</span>
+                        <p class="muted">Solo admin y sysadmin pueden registrar usuarios. Cada usuario nuevo recibe una clave temporal y debe cambiarla al entrar.</p></div>
+                    <button type="button" class="btn btn-primary" id="btnUsuario"><i class="fas fa-user-plus"></i> Nuevo usuario</button>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>Usuarios <span class="count" id="contU">0</span></h2>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th></tr></thead>
+                    <tbody id="filasU"></tbody></table></div>
+                <div class="empty" id="vacioU" hidden><i class="fas fa-users"></i><p>No hay usuarios registrados.</p></div>
+            </div>
+        </section>
     </main>
 
     <p id="aviso" class="aviso" role="status" hidden></p>
@@ -161,6 +180,27 @@
             <p class="muted">Se registra como egreso en la categoría «Comisiones».</p>
             <p class="form-error" id="errPago" role="alert" hidden></p>
             <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Registrar pago</button></div>
+        </form>
+    </dialog>
+    <dialog class="dlg dlg-sm" id="dlgUsuario" aria-labelledby="hUsr">
+        <form id="formUsuario" novalidate>
+            <h2 id="hUsr">Nuevo usuario</h2>
+            <div class="field"><label for="uNombre">Nombre</label><input id="uNombre" maxlength="80" autocomplete="off" required /></div>
+            <div class="field"><label for="uEmail">Correo</label><input id="uEmail" type="email" maxlength="254" autocomplete="off" required /></div>
+            <div class="field"><label for="uRol">Rol</label><select id="uRol" required></select></div>
+            <p class="muted">Se genera una clave temporal que verás una sola vez al guardar.</p>
+            <p class="form-error" id="errUsr" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Registrar usuario</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg dlg-sm" id="dlgClave" aria-labelledby="hClave">
+        <form method="dialog">
+            <h2 id="hClave">Usuario registrado</h2>
+            <p class="muted" id="claveSub"></p>
+            <div class="field"><label for="claveTmp">Clave temporal</label><input id="claveTmp" readonly autocomplete="off" spellcheck="false" /></div>
+            <p class="muted">Cópiala y entrégasela ahora: <strong>no se vuelve a mostrar</strong>. Al iniciar sesión se le pedirá crear una clave propia.</p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" id="btnCopiarClave"><i class="fas fa-copy"></i> Copiar</button><button type="submit" class="btn btn-primary">Ya la copié</button></div>
         </form>
     </dialog>
 </body>
