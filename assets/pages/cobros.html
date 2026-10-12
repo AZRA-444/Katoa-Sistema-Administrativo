@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <title>Cobros — Katoa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/historial.css" />
+    <link rel="stylesheet" href="../css/cobros.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/cobros.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Cobros</h1>
+        <button type="button" class="btn btn-ghost" id="btnActualizar"><i class="fas fa-rotate"></i> Actualizar</button>
+    </header>
+
+    <main class="inv-wrap" data-encargado-access>
+        <section class="kpis" aria-label="Resumen de cobros" aria-live="polite">
+            <div class="kpi"><span>Por cobrar</span><strong id="kPorCobrar">$ 0,00</strong><small id="kPendientes"></small></div>
+            <div class="kpi kpi-alerta"><span>Vencido</span><strong id="kVencido">$ 0,00</strong><small id="kVencidas"></small></div>
+            <div class="kpi"><span>Vencen en 3 días o menos</span><strong id="kPorVencer">0</strong><small>cuentas</small></div>
+            <div class="kpi"><span>Cobrado hoy</span><strong id="kHoy">$ 0,00</strong></div>
+        </section>
+
+        <section id="bannerSinCuenta" class="banner-aviso" hidden>
+            <p><i class="fas fa-triangle-exclamation"></i> <strong id="sinCuentaTxt"></strong> Se guardaron como facturas a crédito, pero su deuda no quedó registrada.</p>
+            <div id="sinCuentaLista"></div>
+        </section>
+
+        <section class="panel">
+            <div class="tools">
+                <div class="field grow"><label for="fBuscar">Buscar</label><input id="fBuscar" type="search" maxlength="60"
+                        placeholder="Cliente, cédula, teléfono o número de factura" autocomplete="off" /></div>
+                <div class="field">
+                    <span class="lbl" id="lblEstado">Mostrar</span>
+                    <div class="filtros" role="group" aria-labelledby="lblEstado">
+                        <button type="button" class="filtro" data-estado="pendientes" aria-pressed="true">Pendientes</button>
+                        <button type="button" class="filtro" data-estado="vencidas" aria-pressed="false">Vencidas</button>
+                        <button type="button" class="filtro" data-estado="pagadas" aria-pressed="false">Pagadas</button>
+                        <button type="button" class="filtro" data-estado="todas" aria-pressed="false">Todas</button>
+                    </div>
+                </div>
+            </div>
+            <h2>Cuentas <span class="count" id="cont">0</span></h2>
+            <div id="lista" class="lista-fac" aria-busy="false"></div>
+            <p class="nota" id="nota" hidden></p>
+            <div class="empty" id="vacio" hidden><i class="fas fa-hand-holding-dollar"></i>
+                <p id="vacioTxt">No hay cuentas por cobrar.</p>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="dlgCuenta" class="dlg-cobro" aria-labelledby="cTitulo">
+        <div class="dlg-body">
+            <div class="cobro-cab">
+                <h2 id="cTitulo">Cuenta</h2>
+                <button type="button" class="btn btn-ghost btn-mini" id="btnCerrar" aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+            </div>
+            <p id="cSub" class="muted"></p>
+            <dl class="kv cobro-kv" id="cDatos"></dl>
+            <button type="button" class="link" id="btnVerFactura"><i class="fas fa-file-invoice"></i> Ver factura</button>
+
+            <h3 class="cobro-h">Abonos recibidos</h3>
+            <div id="cAbonos"></div>
+
+            <form id="formAbono" class="cobro-form" novalidate hidden>
+                <h3 class="cobro-h">Registrar cobro</h3>
+                <div class="grid-2">
+                    <div class="field"><label for="aMonto">Monto a abonar ($)</label>
+                        <input id="aMonto" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" /></div>
+                    <div class="field"><label for="aMetodo">Método de pago</label>
+                        <select id="aMetodo">
+                            <option value="PM">Pago móvil</option>
+                            <option value="PVD">Punto de venta (débito)</option>
+                            <option value="PVC">Punto de venta (crédito)</option>
+                            <option value="ED">Efectivo en divisas ($)</option>
+                            <option value="ZELLE">Zelle</option>
+                            <option value="BINANCE">Binance (USDT)</option>
+                            <option value="EBS">Efectivo en bolívares (Bs)</option>
+                            <option value="OTROS">Otros</option>
+                        </select></div>
+                    <div class="field" id="fMoneda" hidden><label for="aMoneda">Moneda</label>
+                        <select id="aMoneda"><option value="USD">Dólares ($)</option><option value="BS">Bolívares (Bs)</option></select></div>
+                    <div class="field" id="fTasa" hidden><label for="aTasa">Tasa (Bs por $)</label>
+                        <input id="aTasa" type="number" min="0" step="0.01" inputmode="decimal" /><small id="aEquiv" class="muted"></small></div>
+                    <div class="field" id="fBanco" hidden><label for="aBanco">Banco destino</label>
+                        <select id="aBanco"><option value="" disabled selected>Seleccione un banco</option>
+                            <option value="Banesco">Banesco</option><option value="Venezuela">Banco de Venezuela</option>
+                            <option value="Provincial">Provincial</option><option value="Banplus">Banplus</option></select></div>
+                    <div class="field" id="fRef" hidden><label for="aRef" id="lblRef">Referencia</label>
+                        <input id="aRef" autocomplete="off" maxlength="30" /></div>
+                    <div class="field span"><label for="aObs" id="lblObs">Observaciones (opcional)</label>
+                        <textarea id="aObs" rows="2" maxlength="500"></textarea></div>
+                </div>
+                <p id="aError" class="form-error" role="alert" hidden></p>
+                <div class="dlg-actions">
+                    <button type="button" class="btn btn-ghost" id="btnSaldo">Pagar el saldo completo</button>
+                    <button type="submit" class="btn btn-primary" id="btnCobrar"><i class="fas fa-check"></i> Registrar cobro</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <p id="aviso" class="aviso" role="status" hidden></p>
+</body>
+
+</html>

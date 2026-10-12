@@ -8,6 +8,7 @@ La expone /api/administrador (que ya exige admin o sysadmin en TODAS sus peticio
         "lineas": [{"detalle_id": 12, "cantidad": 2, "reingresa": true}]}
         Crea la devolución y devuelve el stock por el kardex (SQL: registrar_devolucion), todo en una
         transacción. La factura NO cambia de estado (las anulaciones siguen su propia lógica).
+        Si la factura era a crédito, también baja la deuda en Cobros (ver api/_creditos.py).
 """
 import os
 import re
@@ -19,6 +20,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _creditos as cred  # noqa: E402
 
 MAX_LINEAS = 150
 LIMITE = 300
@@ -177,9 +179,11 @@ def registrar(d, u):
                      headers=c._hdr_servicio(), timeout=c.TIMEOUT * 2)
     if r.status_code == 200:
         try:
-            return r.json()
+            resultado = r.json()
         except ValueError:
-            return None
+            resultado = None
+        # Factura a crédito: lo devuelto baja la deuda (no hay dinero que reembolsar salvo lo ya abonado).
+        return resultado, cred.ajustar_por_devolucion(id_factura, lineas)
     print(f"[devoluciones] registrar {id_factura} {r.status_code}: {r.text[:400]}", file=sys.stderr)
     exceso = re.search(r"cantidad_excede:([^\"\\]+)", r.text)
     if exceso:

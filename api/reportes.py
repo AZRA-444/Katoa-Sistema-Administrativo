@@ -1,7 +1,8 @@
 """/api/reportes  (solo lectura)
 
 GET ?tipo=...  (encargado, admin, sysadmin). Los costos del inventario solo los ve el administrador.
-    cierre          [desde, hasta, vendedor]          cierre de caja: por método de pago, vendedor y conciliación
+    cierre          [desde, hasta, vendedor]          cierre de caja: por método de pago, vendedor, conciliación,
+                                                      ventas a crédito y abonos cobrados en el período
     facturas        [desde, hasta, q, vendedor, metodo]   listado para reimprimir (máx. 100)
     detalle         id=FAC-...                         una factura con sus productos y pagos
     ventas          [desde, hasta, vendedor]          ventas por día, hora y vendedor
@@ -43,7 +44,7 @@ ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
 ETIQUETAS = {
     "ED": "Efectivo en dólares", "EBS": "Efectivo en bolívares", "PM": "Pago móvil",
     "PVD": "Punto de venta (débito)", "PVC": "Punto de venta (crédito)", "ZELLE": "Zelle",
-    "BINANCE": "Binance (USDT)", "OTROS": "Otros", "MIXTO": "Pago combinado",
+    "BINANCE": "Binance (USDT)", "OTROS": "Otros", "MIXTO": "Pago combinado", "CREDITO": "Crédito (fiado)",
 }
 ORDEN_METODOS = list(ETIQUETAS)
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}    # se cobran en dólares; el resto en bolívares (OTROS trae su moneda)
@@ -175,7 +176,7 @@ def pagos_de(f):
 
     monto = lo que realmente entró (en su moneda); lista = su equivalente en dólares a precio de lista.
     Pago combinado: sale de pagos_combinados. Pago único: el total en USD (métodos en dólares, Otros)
-    o en Bs (el resto).
+    o en Bs (el resto). Crédito (fiado): monto 0 y lista = lo que quedó por cobrar.
     """
     pc = f.get("pagos_combinados")
     if f.get("metodo_pago") == "MIXTO" and isinstance(pc, list) and pc:
@@ -190,6 +191,9 @@ def pagos_de(f):
         if salida:
             return salida
     metodo = f.get("metodo_pago") if f.get("metodo_pago") in ETIQUETAS else "OTROS"
+    if metodo == "CREDITO":  # fiado: no entró dinero (monto 0); los abonos se cuentan aparte, cuando se cobran
+        return [{"metodo": metodo, "moneda": "USD", "monto": Decimal(0),
+                 "lista": _d(f.get("subtotal_usd")) or _d(f.get("total_usd")), "banco": None, "referencia": None}]
     if metodo in METODOS_USD or metodo in ("OTROS", "MIXTO"):
         moneda, monto = "USD", _d(f.get("total_usd"))
     else:
@@ -242,15 +246,56 @@ def calc_cierre(facturas):
                             "cobrado_bs": _f(v["bs"])} for k, v in vend.items()), key=lambda x: -x["lista_usd"])
     tasas = [_d(f.get("tasa_cambio")) for f in facturas if _d(f.get("tasa_cambio")) > 0]
     efectivo = lambda m: _f(sum((a["monto"] for (mm, _), a in metodos.items() if mm == m), Decimal(0)))  # noqa: E731
+    credito = [f for f in facturas if f.get("metodo_pago") == "CREDITO"]
     return {
         "resumen": {"facturas": n, "lista_usd": _f(lista), "ticket_promedio": _f(lista / n) if n else 0.0,
                     "cobrado_usd": _f(cobrado["USD"]), "cobrado_bs": _f(cobrado["BS"]),
                     "efectivo_usd": efectivo("ED"), "efectivo_bs": efectivo("EBS"),
+                    "credito_facturas": len(credito),
+                    "credito_usd": _f(sum((_d(f.get("subtotal_usd")) for f in credito), Decimal(0))),
                     "tasa_min": _f(min(tasas)) if tasas else None, "tasa_max": _f(max(tasas)) if tasas else None,
                     "primera": facturas[0].get("created_at") if facturas else None,
                     "ultima": facturas[-1].get("created_at") if facturas else None},
         "por_metodo": por_metodo, "por_vendedor": por_vendedor, "conciliacion": conciliacion[:500],
         "conciliacion_total": len(conciliacion),
+    }
+
+
+# ── Abonos de crédito (módulo Cobros) ───────────────────────────────────────
+def abonos_rango(desde, hasta):
+    """Abonos de cuentas a crédito cobrados en el rango (por la fecha en que se cobraron, no la de la venta)."""
+    params = [("select", "monto_usd,metodo,moneda,monto_moneda,banco,referencia,creado_en,usuario_nombre,"
+                         "cuentas_por_cobrar(id_factura,nombre_cliente)"),
+              ("order", "creado_en.asc,id.asc"), *filtro_fecha("creado_en", desde, hasta)]
+    return todo("cobros_abonos", params, MAX_FILAS, "abonos")
+
+
+def calc_abonos(abonos):
+    acum = {}
+    conciliacion = []
+    for a in abonos:
+        metodo = a.get("metodo") if a.get("metodo") in ETIQUETAS else "OTROS"
+        moneda = "BS" if a.get("moneda") == "BS" else "USD"
+        k = acum.setdefault((metodo, moneda), {"n": 0, "monto": Decimal(0), "lista": Decimal(0)})
+        k["n"] += 1
+        k["monto"] += _d(a.get("monto_moneda"))
+        k["lista"] += _d(a.get("monto_usd"))
+        if metodo in CON_REFERENCIA:
+            cta = a.get("cuentas_por_cobrar") or {}
+            conciliacion.append({"id_factura": cta.get("id_factura"), "cliente": cta.get("nombre_cliente"),
+                                 "hora": a.get("creado_en"), "metodo": metodo, "etiqueta": ETIQUETAS[metodo],
+                                 "moneda": moneda, "monto": _f(a.get("monto_moneda")),
+                                 "banco": a["banco"] if a.get("banco") not in (None, "N/A") else None,
+                                 "referencia": a["referencia"] if a.get("referencia") not in (None, "N/A") else None})
+    por_metodo = _ordenar_metodos([
+        {"metodo": m, "etiqueta": ETIQUETAS[m], "moneda": mon, "abonos": v["n"], "monto": _f(v["monto"]), "lista_usd": _f(v["lista"])}
+        for (m, mon), v in acum.items()])
+    return {
+        "cantidad": len(abonos),
+        "lista_usd": _f(sum((_d(a.get("monto_usd")) for a in abonos), Decimal(0))),
+        "cobrado_usd": _f(sum((v["monto"] for (m, mon), v in acum.items() if mon == "USD"), Decimal(0))),
+        "cobrado_bs": _f(sum((v["monto"] for (m, mon), v in acum.items() if mon == "BS"), Decimal(0))),
+        "por_metodo": por_metodo, "conciliacion": conciliacion[:500], "conciliacion_total": len(conciliacion),
     }
 
 
@@ -496,7 +541,16 @@ def _vendedor(qs):
 
 def r_cierre(qs, u):
     desde, hasta = rango(qs)
-    return calc_cierre(facturas_rango(desde, hasta, vendedor=_vendedor(qs))), desde, hasta
+    cierre = calc_cierre(facturas_rango(desde, hasta, vendedor=_vendedor(qs)))
+    # Los abonos de crédito se cobran por cobrador, no por vendedor: con filtro de vendedor no aplican.
+    if _vendedor(qs):
+        cierre["abonos"] = None
+    else:
+        try:
+            cierre["abonos"] = calc_abonos(abonos_rango(desde, hasta))
+        except c.ErrorPeticion:
+            cierre["abonos"] = {"no_disponible": True}   # el cierre de ventas sigue valiendo; se avisa del faltante
+    return cierre, desde, hasta
 
 
 def r_facturas(qs, u):

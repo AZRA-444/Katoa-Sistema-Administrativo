@@ -5,7 +5,7 @@ const TZ = 'America/Caracas';
 const PAGINA = 100;
 const METODOS = {
     PM: 'Pago móvil', PVD: 'Punto débito', PVC: 'Punto crédito', ED: 'Efectivo $', EBS: 'Efectivo Bs',
-    ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros', MIXTO: 'Pago combinado',
+    ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros', MIXTO: 'Pago combinado', CREDITO: 'Crédito (fiado)',
 };
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, props = {}, ...hijos) => { const n = document.createElement(tag); Object.assign(n, props); n.append(...hijos); return n; };

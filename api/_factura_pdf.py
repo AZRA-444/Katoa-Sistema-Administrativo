@@ -40,6 +40,7 @@ METODOS = {
     "PM": "Pago móvil",
     "PVD": "Punto de venta (débito)",
     "PVC": "Punto de venta (crédito)",
+    "CREDITO": "Crédito (fiado)",
     "ED": "Efectivo en dólares",
     "EBS": "Efectivo en bolívares",
     "ZELLE": "Zelle",

@@ -11,6 +11,12 @@ POST (admin y sysadmin; el resto de roles solo con un código de autorización v
         transacción. La factura NO se borra.
 
 El PDF y el reenvío por WhatsApp ya existen en /api/factura-pdf.
+
+COBROS (cuentas por cobrar de las ventas a crédito). Se sirven aquí y no en un endpoint propio porque el plan
+Hobby de Vercel limita a 12 funciones; la lógica vive en api/_cobros.py (ver su docstring):
+    GET  ?modo=cobros_lista | cobros_cuenta | cobros_sin_cuenta     (encargado, admin, sysadmin)
+    POST {"accion": "cobro_abonar" ...}                              (encargado, admin, sysadmin)
+    POST {"accion": "cobro_regularizar" ...}                         (admin, sysadmin)
 """
 import os
 import re
@@ -23,7 +29,9 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _autorizaciones as aut  # noqa: E402
+import _cobros as cob  # noqa: E402
 import _comun as c  # noqa: E402
+import _creditos as cred  # noqa: E402
 
 MAX_BODY = 4 * 1024
 LIMITE = 300
@@ -141,7 +149,8 @@ def _anular(d, u):
                      json={"p_id": id_factura, "p_motivo": motivo, "p_usuario": u["id"]},
                      headers=c._hdr_servicio(), timeout=c.TIMEOUT * 2)
     if r.status_code in (200, 204):
-        return
+        # Factura a crédito: su deuda deja de cobrarse. Devuelve lo abonado (si hubo) para avisar a quien anula.
+        return cred.anular_por_factura(id_factura)
     print(f"[historial] anular {id_factura} {r.status_code}: {r.text[:400]}", file=sys.stderr)
     for clave, (status, msg) in MENSAJES.items():
         if clave in r.text:
@@ -173,6 +182,12 @@ class handler(BaseHTTPRequestHandler):
                 filas, truncado = _hoy()
                 return c.responder(self, 200, {"status": "ok", "data": filas, "truncado": truncado,
                                                "limite": LIMITE, "fecha": datetime.now(VENEZUELA).date().isoformat()})
+            if modo == "cobros_lista":
+                return c.responder(self, 200, {"status": "ok", **cob.lista(qs)})
+            if modo == "cobros_cuenta":
+                return c.responder(self, 200, {"status": "ok", **cob.cuenta((qs.get("id") or [""])[0])})
+            if modo == "cobros_sin_cuenta":
+                return c.responder(self, 200, {"status": "ok", **cob.sin_cuenta()})
             if modo == "comprobante":
                 img = _comprobante((qs.get("id") or [""])[0])
                 self.send_response(200)
@@ -193,10 +208,16 @@ class handler(BaseHTTPRequestHandler):
         try:
             u = _entrada(self, "personal")   # el permiso real (admin o código) se exige en _anular
             d = c.leer_json(self, MAX_BODY)
+            if d.get("accion") in ("cobro_abonar", "cobro_regularizar"):
+                return c.responder(self, 200, cob.post(d, u))   # exige su propio rol (encargado / admin)
             if d.get("accion") != "anular":
                 raise c.ErrorPeticion(400, "Acción no válida.")
-            _anular(d, u)
-            c.responder(self, 200, {"status": "ok", "message": "Factura anulada y stock devuelto al inventario."})
+            abonado = _anular(d, u)
+            msg = "Factura anulada y stock devuelto al inventario."
+            if abonado:
+                msg += (f" Esta factura era a crédito y ya tenía ${abonado:.2f} abonados: la deuda quedó cerrada, "
+                        "pero ese dinero hay que devolvérselo al cliente.")
+            c.responder(self, 200, {"status": "ok", "message": msg})
         except c.ErrorPeticion as e:
             self._fallo(e)
         except Exception as e:  # noqa: BLE001

@@ -3,7 +3,7 @@
  * Flujo: 1) datos del cliente  2) tasa y productos  3) pago  4) enviar
  * Formateadores → utils/format.js · Llamadas al servidor → utils/api.js
  * ========================================================================== */
-import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164 } from './utils/format.js';
+import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164, hoyISO, sumarDias, fechaISO } from './utils/format.js';
 import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura, urlPdfFactura, reenviarWhatsapp } from './utils/api.js';
 
 //--- CONSTANTES ---//
@@ -17,6 +17,12 @@ const BANCOS = [
 
 // Métodos que se cobran en dólares: el total se convierte con la tasa USDT (ver montoEnDolares).
 const METODOS_USD = new Set(['ED', 'ZELLE', 'BINANCE']);
+
+// Crédito (fiado): el cliente se lleva la mercancía y paga después, dentro de un plazo en días. La deuda
+// queda en el módulo Cobros. Reglas (plazo máximo, quién puede usarlo): las manda /api/sesion y las exige el servidor.
+const CREDITO = 'CREDITO';
+const PLAZO_DEFECTO = 15;
+const plazoMax = () => Number(window.Auth?.credito?.plazo_max_dias) || 90;
 const METODOS_COMPROBANTE = new Set(['ZELLE', 'BINANCE']); // el pago móvil NO sube comprobante
 
 //--- ESTADO ---//
@@ -541,12 +547,34 @@ function selectMetodoPago(valor) {
         activarVuelto($('#EBSMontoRecibido'), $('#EBSVueltoEntrega'), t.totalBs, bs);
     } else if (valor === 'OTROS') {
         cont.innerHTML = monto('Monto', mixto) + observaciones('observacionesOTROS', true);
+    } else if (valor === CREDITO) {
+        const max = plazoMax();
+        cont.innerHTML =
+            monto('Se carga a la cuenta del cliente', mixto) +
+            campo('creditoDias', `Días para pagar (máx. ${max})`,
+                `<input id="creditoDias" type="number" min="1" max="${max}" step="1" inputmode="numeric" value="${Math.min(PLAZO_DEFECTO, max)}">`) +
+            `<div class="pago-monto"><small>Fecha límite de pago</small><strong id="creditoVence">—</strong>` +
+            `<span class="pago-ahorro">Queda por cobrar en el módulo Cobros. No entra a caja hoy.</span></div>` +
+            observaciones('observacionesCRED');
+        activarCredito();
     } else if (valor === 'MIXTO') {
         iniciarMixto(cont);
     }
 
     $('#pmRef')?.addEventListener('input', (e) => { e.target.value = soloDigitos(e.target.value); });
     $('#refDigital')?.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase(); });
+}
+
+function activarCredito() {
+    const entrada = $('#creditoDias'), vence = $('#creditoVence');
+    const pintar = () => { vence.textContent = fechaLimiteCredito(Number(entrada.value)) ?? '—'; };
+    entrada.addEventListener('input', pintar);
+    pintar();
+}
+
+/** Fecha límite (DD/MM/AAAA, hora de Venezuela) para un plazo en días, o null si el plazo no es válido. */
+function fechaLimiteCredito(dias) {
+    return Number.isInteger(dias) && dias >= 1 && dias <= plazoMax() ? fechaISO(sumarDias(hoyISO(), dias)) : null;
 }
 
 function activarVuelto(entrada, salida, total, formato) {
@@ -639,6 +667,12 @@ function leerPago() {
     } else if (metodo === 'OTROS') {
         pago.observaciones = val('observacionesOTROS');
         if (!pago.observaciones) return { error: 'Describe el método de pago en las observaciones.', campo: 'observacionesOTROS' };
+    } else if (metodo === CREDITO) {
+        const dias = Number(val('creditoDias'));
+        if (!Number.isInteger(dias) || dias < 1) return { error: 'Indica cuántos días tiene el cliente para pagar.', campo: 'creditoDias' };
+        if (dias > plazoMax()) return { error: `El plazo máximo del crédito es de ${plazoMax()} días.`, campo: 'creditoDias' };
+        pago.plazo_dias = dias;
+        pago.observaciones = val('observacionesCRED');
     } else if (metodo === 'MIXTO') {
         return leerMixto(pago);
     }
@@ -904,7 +938,10 @@ async function finalizarCompra() {
         guardarCliente({ cedula: soloDigitos(c.cedula), nombre: c.nombre, apellido: c.apellido, telefono });
         state.items = []; // sin productos, el aviso de salida ya no aplica
         // whatsapp: null si la factura ya estaba registrada (reintento): no se sabe si llegó
-        state.factura = { id: payload.id_factura, telefono, pdf: res.pdf === true, whatsapp: res.whatsapp ?? null };
+        state.factura = {
+            id: payload.id_factura, telefono, pdf: res.pdf === true, whatsapp: res.whatsapp ?? null,
+            credito: payload.plazo_dias ? { dias: payload.plazo_dias, vence: fechaLimiteCredito(payload.plazo_dias) } : null,
+        };
         pintarExito();
         mostrarEstado('exito');
     } catch (e) {
@@ -933,6 +970,9 @@ function pintarExito() {
     aviso.textContent = f.pdf ? texto : `${texto} No se pudo guardar el PDF para imprimirlo.`;
     $('#btnImprimir').hidden = !f.pdf;
     $('#btnReenviarWa').hidden = !f.pdf || SIN_REINTENTO.has(f.whatsapp);
+    const cred = $('#exitoCredito');
+    cred.hidden = !f.credito;
+    if (f.credito) cred.textContent = `Venta a crédito: el cliente tiene ${f.credito.dias} día${f.credito.dias === 1 ? '' : 's'} para pagar (hasta el ${f.credito.vence}). Se cobra en el módulo Cobros.`;
 }
 
 // Abre el PDF en una pestaña nueva; desde el visor se imprime (el PDF ya es tamaño carta).
@@ -959,6 +999,8 @@ async function reintentarWhatsapp() {
 async function init() {
     // auth-guard.js redirige a /login.html si no hay sesión
     if (window.Auth && !(await window.Auth.listo)) return;
+
+    if (window.Auth?.credito?.permitido === false) $('#metodoPago option[value="CREDITO"]')?.remove();
 
     initTasa();
     initTasaUsdt();

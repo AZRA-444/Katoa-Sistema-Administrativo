@@ -17,7 +17,7 @@ const TIPOS_KARDEX = {
 };
 const METODOS = [
     ['ED', 'Efectivo en dólares'], ['EBS', 'Efectivo en bolívares'], ['PM', 'Pago móvil'], ['PVD', 'Punto de venta (débito)'],
-    ['PVC', 'Punto de venta (crédito)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'], ['OTROS', 'Otros'], ['MIXTO', 'Pago combinado'],
+    ['PVC', 'Punto de venta (crédito)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'], ['OTROS', 'Otros'], ['MIXTO', 'Pago combinado'], ['CREDITO', 'Crédito (fiado)'],
 ];
 const PRESETS = [['hoy', 'Hoy'], ['ayer', 'Ayer'], ['7d', '7 días'], ['30d', '30 días'], ['mes', 'Este mes'], ['mespasado', 'Mes pasado']];
 const DIAS_OPCIONES = [['15', '15 días'], ['30', '30 días'], ['60', '60 días'], ['90', '90 días'], ['180', '6 meses'], ['365', '1 año']];
@@ -125,8 +125,13 @@ const colMetodo = [
     { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Cobrado', f: (r) => MONEDA[r.moneda](r.monto), v: (r) => r.monto, n: true },
 ];
 
+const colAbono = [
+    { t: 'Método', k: 'etiqueta', titulo: true }, { t: 'Moneda', f: (r) => (r.moneda === 'USD' ? 'Dólares' : 'Bolívares'), v: (r) => r.moneda },
+    { t: 'Abonos', k: 'abonos', m: 'num' }, { t: 'Cobrado', f: (r) => MONEDA[r.moneda](r.monto), v: (r) => r.monto, n: true },
+];
+
 function rCierre(d) {
-    const s = d.resumen;
+    const s = d.resumen, ab = d.abonos;
     const nodos = [kpis([
         { t: 'Facturas', v: entero(s.facturas), s: s.facturas ? `Ticket promedio ${usd(s.ticket_promedio)}` : 'Sin ventas en este período' },
         { t: 'Ventas a precio de lista', v: usd(s.lista_usd), tono: 'destacada' },
@@ -134,7 +139,10 @@ function rCierre(d) {
         { t: 'Cobrado en bolívares', v: bs(s.cobrado_bs), s: 'Pago móvil, punto de venta y efectivo en Bs' },
         { t: 'Efectivo en caja ($)', v: usd(s.efectivo_usd), s: 'Para contar los dólares' },
         { t: 'Efectivo en caja (Bs)', v: bs(s.efectivo_bs), s: 'Para contar los bolívares' },
+        s.credito_facturas > 0 && { t: 'Vendido a crédito', v: usd(s.credito_usd), s: `${plural(s.credito_facturas, 'factura', 'facturas')} · por cobrar` },
+        ab && !ab.no_disponible && ab.cantidad > 0 && { t: 'Abonos de crédito cobrados', v: usd(ab.lista_usd), s: `${plural(ab.cantidad, 'abono', 'abonos')} · ${usd(ab.cobrado_usd)} en $ y ${bs(ab.cobrado_bs)}` },
     ])];
+    if (s.credito_facturas > 0) nodos.push(nota('Las ventas a crédito no son dinero cobrado: aparecen en «Por método» con cobrado en cero y se cobran después en el módulo Cobros.'));
     if (s.facturas) {
         nodos.push(nota([
             s.primera ? `Primera factura ${soloHora(s.primera)} · última ${soloHora(s.ultima)}.` : '',
@@ -145,6 +153,16 @@ function rCierre(d) {
     nodos.push(sec('Por método de pago', 'Un pago combinado cuenta en cada método que usó.',
         tabla('Por método de pago', [...colMetodo, { t: 'Equivalente a precio de lista', k: 'lista_usd', m: 'usd' }], d.por_metodo,
             { sinDatos: 'No hay pagos en este período.' })));
+    if (ab?.no_disponible) nodos.push(nota('No se pudieron consultar los abonos de crédito de este período; las ventas de arriba sí están completas.'));
+    else if (ab && ab.cantidad > 0) {
+        nodos.push(sec('Cobros de crédito (abonos recibidos)', 'Dinero que entró en el período por ventas fiadas, sin importar cuándo se vendieron.',
+            tabla('Abonos de crédito', [...colAbono, { t: 'Equivalente a precio de lista', k: 'lista_usd', m: 'usd' }], ab.por_metodo)));
+        if (ab.conciliacion_total) nodos.push(sec('Conciliación de abonos', 'Referencias de pago móvil, Zelle y Binance cobradas como abono.', tabla('Conciliación de abonos', [
+            { t: 'Hora', k: 'hora', m: 'hora', v: (r) => fechaHora(r.hora) }, { t: 'Factura', k: 'id_factura', cls: 'mono' }, { t: 'Cliente', k: 'cliente' },
+            { t: 'Método', k: 'etiqueta' }, { t: 'Banco', k: 'banco' }, { t: 'Referencia', k: 'referencia', cls: 'mono' },
+            { t: 'Monto', f: (r) => MONEDA[r.moneda](r.monto), v: (r) => r.monto, n: true },
+        ], ab.conciliacion)));
+    }
     nodos.push(sec('Por vendedor', null, tabla('Por vendedor', [
         { t: 'Vendedor', k: 'vendedor', titulo: true }, { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Ventas a precio de lista', k: 'lista_usd', m: 'usd' },
         { t: 'Cobrado en $', k: 'cobrado_usd', m: 'usd' }, { t: 'Cobrado en Bs', k: 'cobrado_bs', m: 'bs' },

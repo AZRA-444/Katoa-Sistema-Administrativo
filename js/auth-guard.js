@@ -64,6 +64,7 @@
 
     const Auth = {
         usuario: null,
+        credito: null, // reglas de la venta a crédito: { permitido, plazo_max_dias } (las manda /api/sesion)
         debeCambiarClave: false,
 
         tieneRol(...roles) {
@@ -113,6 +114,7 @@
 
             const datos = await r.json();
             Auth.usuario = datos.usuario;
+            Auth.credito = datos.credito || null;
             Auth.debeCambiarClave = !!datos.debe_cambiar_clave;
 
             // Clave temporal: solo se puede estar en la pantalla de cambio (el servidor también lo exige:

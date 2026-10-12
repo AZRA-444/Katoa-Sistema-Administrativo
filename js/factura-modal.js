@@ -19,7 +19,7 @@ import { conAutorizacion } from './autorizacion.js';
 
 const API = '/api/historial';
 const METODOS = {
-    MIXTO: 'Pago combinado', PM: 'Pago móvil', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)',
+    MIXTO: 'Pago combinado', PM: 'Pago móvil', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)', CREDITO: 'Crédito (fiado)',
     ED: 'Efectivo en dólares', EBS: 'Efectivo en bolívares', ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros',
 };
 const AVISOS_WA = {

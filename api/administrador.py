@@ -183,7 +183,14 @@ class handler(BaseHTTPRequestHandler):
                 _eliminar(d)
                 self._ok(message="Egreso eliminado.")
             elif d.get("accion") == "devolucion_registrar":
-                self._ok(id=dev.registrar(d, u), message="Devolución registrada.")
+                resultado, ajuste = dev.registrar(d, u)
+                msg = "Devolución registrada."
+                if ajuste:  # la factura era a crédito: la deuda bajó en Cobros
+                    msg += f" Factura a crédito: la deuda bajó y el saldo pendiente es ${float(ajuste.get('saldo_usd') or 0):.2f}."
+                    if float(ajuste.get("reembolsar_usd") or 0) > 0:
+                        msg += (f" El cliente ya había abonado de más: devuélvele ${float(ajuste['reembolsar_usd']):.2f} "
+                                "(no se registra automáticamente).")
+                self._ok(id=resultado, message=msg)
             else:
                 raise c.ErrorPeticion(400, "Acción no válida.")
         except c.ErrorPeticion as e:

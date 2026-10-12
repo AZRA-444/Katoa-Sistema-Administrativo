@@ -13,6 +13,9 @@ Seguridad:
   - Sube el comprobante (JPEG) al bucket `comprobantes` DESPUÉS de guardar la factura y sin sobrescribir
     nunca uno existente (así un id reutilizado no puede pisar el comprobante original).
 
+Crédito (método CREDITO): la factura se guarda a precio de lista y, además, se registra la deuda en
+  `cuentas_por_cobrar` con su fecha límite (api/_creditos.py). El cliente paga después desde el módulo Cobros.
+
 Después de guardar:
   - Genera el PDF (tamaño carta), lo archiva en el bucket `facturas` y lo envía por WhatsApp
     al cliente a través del bot (api/_whatsapp.py). Si algo de esto falla, la factura sigue
@@ -32,6 +35,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _creditos as cred  # noqa: E402
 import _referencias as ref  # noqa: E402
 import _whatsapp as wa  # noqa: E402
 from _factura_pdf import generar_pdf  # noqa: E402
@@ -45,7 +49,7 @@ BUCKET = "comprobantes"
 PREFIJO_JPEG = "data:image/jpeg;base64,"
 
 METODOS_MIXTO = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}  # los que se pueden combinar
-METODOS = METODOS_MIXTO | {"MIXTO"}  # MIXTO = pago combinado (varios métodos, repetibles)
+METODOS = METODOS_MIXTO | {"MIXTO", cred.METODO}  # MIXTO = pago combinado; CREDITO = fiado (se cobra después en Cobros)
 MAX_PAGOS = 8  # máximo de pagos dentro de un pago combinado
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}  # se cobran en dólares con la tasa USDT
 MAX_BRECHA_USDT = Decimal(2)  # tasa USDT > 2× BCV se considera un error de digitación
@@ -566,9 +570,12 @@ class handler(BaseHTTPRequestHandler):
             datos = c.leer_json(self, MAX_BODY)
             factura, detalles, comprobante = validar(datos)
             verificar_servidor(datos, factura, detalles, usuario)
+            credito = cred.preparar(datos, factura, usuario)  # None si la venta no es a crédito
             if comprobante:
                 factura["comprobante_path"] = _ruta_comprobante(factura["id_factura"])
             estado = _guardar(factura, detalles, usuario["id"])
+            if credito:  # tras guardar la factura; en un reintento («duplicada») se completa sin duplicar la deuda
+                cred.crear_cuenta(credito)
             if comprobante:  # después de guardar: un fallo aquí nunca deja un archivo huérfano
                 _subir_comprobante(factura["id_factura"], comprobante)
         except c.ErrorPeticion as e:

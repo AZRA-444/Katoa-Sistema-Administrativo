@@ -14,6 +14,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _creditos as cred  # noqa: E402
 
 MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
 
@@ -67,6 +68,11 @@ class handler(BaseHTTPRequestHandler):
                     "rol": perfil.get("rol"),
                 },
                 "debe_cambiar_clave": bool(perfil.get("debe_cambiar_clave")),
+                # Reglas de la venta a crédito (la pantalla de venta las usa; el servidor vuelve a exigirlas)
+                "credito": {
+                    "permitido": c.NIVELES.get(str(perfil.get("rol") or "").lower(), 0) >= c.NIVELES[cred.rol_minimo()],
+                    "plazo_max_dias": cred.plazo_maximo(),
+                },
             },
             cookies=nuevas_cookies,
         )
