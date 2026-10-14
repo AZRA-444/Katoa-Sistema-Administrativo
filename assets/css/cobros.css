@@ -16,7 +16,7 @@
 .barra { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
 .barra span { display: block; height: 100%; background: var(--terracota); }
 
-.dlg-cobro { width: min(640px, 94vw); max-height: 92vh; padding: 0; border: 0; border-radius: 16px; box-shadow: var(--shadow-md); overflow: auto; }
+.dlg-cobro { width: min(640px, 94vw); max-height: 92vh; max-height: 92dvh; padding: 0; border: 0; border-radius: 16px; box-shadow: var(--shadow-md); overflow: auto; }
 .dlg-cobro::backdrop { background: rgba(30, 41, 59, .45); }
 .dlg-cobro .dlg-body { padding: 18px 20px; display: grid; gap: 10px; text-align: left; }
 .cobro-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; }

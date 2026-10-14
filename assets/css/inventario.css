@@ -183,24 +183,9 @@ body:has(dialog[open]) { overflow: hidden; }
 .grupo[open] > summary { margin-bottom: 8px; }
 .vrow .check { grid-column: 1 / -1; }
 
-/* Móvil: cada fila de la tabla pasa a ser una tarjeta (sin scroll horizontal) */
+/* Móvil: las filas pasan a tarjetas con responsive.css (+ js/utils/tablas-responsive.js) */
 @media (max-width: 640px) {
   .topbar .btn { flex: 1 1 auto; }
-  .inv-wrap .table-wrap { max-height: none; overflow: visible; border: 0; background: none; }
-  .inv-wrap .tabla-resp, .inv-wrap .tabla-resp tbody, .inv-wrap .tabla-resp tr, .inv-wrap .tabla-resp td { display: block; min-width: 0; }
-  .inv-wrap .tabla-resp thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .inv-wrap .tabla-resp tr { margin-bottom: 10px; padding: 8px 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
-  .inv-wrap .tabla-resp tr.agotado { box-shadow: inset 4px 0 0 var(--danger), var(--shadow); }
-  .inv-wrap .tabla-resp tr.bajo { box-shadow: inset 4px 0 0 #E0A93B, var(--shadow); }
-  .inv-wrap .tabla-resp td, .inv-wrap .tabla-resp tr.agotado td:first-child, .inv-wrap .tabla-resp tr.bajo td:first-child { box-shadow: none; }
-  .inv-wrap .tabla-resp td { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 7px 0; text-align: right; border-bottom: 1px dashed var(--line); }
-  .inv-wrap .tabla-resp td::before { content: attr(data-label); flex: none; font-size: .78rem; font-weight: 600; color: var(--muted); text-align: left; }
-  .inv-wrap .tabla-resp td.celda-titulo { display: block; padding-top: 4px; text-align: left; font-size: 1rem; }
-  .inv-wrap .tabla-resp td.celda-titulo::before { display: none; }
-  .inv-wrap .tabla-resp td:last-child { border-bottom: 0; padding-bottom: 4px; }
-  .inv-wrap .tabla-resp .detalle-k { max-width: none; }
-  .inv-wrap .tabla-resp .acts { flex-wrap: wrap; justify-content: flex-end; width: 100%; }
-  .inv-wrap .tabla-resp td[data-label="Acciones"]::before { display: none; }
   .acts button { width: auto; min-height: 44px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; font: 600 .85rem var(--font-body); }
   .acts .lbl { display: inline; }
   .filtros { width: 100%; }
