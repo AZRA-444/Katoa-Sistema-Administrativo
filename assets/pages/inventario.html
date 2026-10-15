@@ -10,11 +10,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
     <link
-        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="../css/global.css" />
     <link rel="stylesheet" href="../css/facturacion.css" />
     <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/inventario-ui.css" />
     <link rel="stylesheet" href="../css/responsive.css" />
     <link rel="icon" href="../img/favicon.ico" />
     <script src="../../js/utils/tablas-responsive.js" defer></script>
@@ -22,14 +23,14 @@
     <script type="module" src="../../js/inventario.js"></script>
 </head>
 
-<body>
+<body class="pg-inventario">
     <header class="topbar">
         <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
         <h1>Inventario</h1>
-        <button type="button" class="btn btn-ghost" id="btnLlegada" data-admin-only><i
-                class="fas fa-truck-ramp-box"></i> Registrar llegada</button>
-        <button type="button" class="btn btn-primary" id="btnNuevo" data-admin-only><i class="fas fa-plus"></i> Nuevo
+        <button type="button" class="btn btn-ghost" id="btnNuevo" data-admin-only><i class="fas fa-plus"></i> Nuevo
             producto</button>
+        <button type="button" class="btn btn-primary" id="btnEntrada" data-admin-only><i
+                class="fas fa-truck-ramp-box"></i> Entrada de mercancía</button>
     </header>
 
     <main class="inv-wrap" data-encargado-access>
@@ -40,55 +41,65 @@
                 tabindex="-1">Kardex</button>
         </nav>
 
-        <section class="panel" id="panExist" role="tabpanel" aria-labelledby="tabExist">
-            <div class="tools">
-                <div class="field grow"><label for="fBuscar">Buscar</label>
-                    <input id="fBuscar" type="search" placeholder="Nombre, marca, color, talla o código de barras"
+        <!-- ───────── EXISTENCIAS ───────── -->
+        <section class="panel panel-inv" id="panExist" role="tabpanel" aria-labelledby="tabExist">
+            <div class="barra">
+                <div class="buscador">
+                    <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                    <label for="fBuscar" class="sr-only">Buscar</label>
+                    <input id="fBuscar" type="search" placeholder="Buscar por nombre, marca, color, talla o código de barras"
                         autocomplete="off" />
                 </div>
-                <div class="field"><label for="fSeccion">Sección</label>
+                <div class="field">
+                    <label for="fSeccion" class="sr-only">Sección</label>
                     <select id="fSeccion">
-                        <option value="">Todas</option>
+                        <option value="">Todas las secciones</option>
                     </select>
                 </div>
-                <div class="field"><span class="lbl" id="lblNivel">Nivel de stock</span>
-                    <div class="filtros" role="group" aria-labelledby="lblNivel">
-                        <button type="button" class="filtro" data-alerta="" aria-pressed="true">Todos</button>
-                        <button type="button" class="filtro" data-alerta="agotado"
-                            aria-pressed="false">Agotados</button>
-                        <button type="button" class="filtro" data-alerta="bajo" aria-pressed="false"
-                            title="En el mínimo o por debajo">Stock bajo</button>
-                        <button type="button" class="filtro" data-alerta="alto" aria-pressed="false"
-                            title="En el máximo o por encima">Stock alto</button>
-                    </div>
-                </div>
             </div>
-            <h2>Existencias <span class="count" id="contInv">0</span></h2>
-            <p class="resumen" id="resumenInv" aria-live="polite"></p>
-            <div class="table-wrap" aria-busy="false">
-                <table class="tabla-resp">
-                    <caption class="sr-only">Existencias de inventario</caption>
+
+            <div class="franja-estado">
+                <div class="filtros" role="group" aria-label="Nivel de stock">
+                    <button type="button" class="filtro" data-alerta="" aria-pressed="true">Todos</button>
+                    <button type="button" class="filtro" data-alerta="agotado" aria-pressed="false">Agotados</button>
+                    <button type="button" class="filtro" data-alerta="bajo" aria-pressed="false"
+                        title="En el mínimo o por debajo">Stock bajo</button>
+                    <button type="button" class="filtro" data-alerta="alto" aria-pressed="false"
+                        title="En el máximo o por encima">Stock alto</button>
+                    <button type="button" class="btn-texto" id="fLimpiar" hidden><i class="fas fa-xmark"></i> Quitar
+                        filtros</button>
+                </div>
+                <p class="metricas" id="resumenInv" aria-live="polite"></p>
+            </div>
+
+            <div class="inv-lista" aria-busy="false" id="listaInv">
+                <table class="inv-tabla" id="tablaInv" data-no-resp>
+                    <caption class="sr-only">Existencias de inventario, agrupadas por producto</caption>
                     <thead>
                         <tr>
                             <th scope="col">Producto</th>
                             <th scope="col">Código</th>
                             <th scope="col" class="n">Stock</th>
-                            <th scope="col">Precios</th>
                             <th scope="col" class="n" data-admin-only>Costo</th>
-                            <th scope="col" class="c">Acciones</th>
+                            <th scope="col" class="n">Detal</th>
+                            <th scope="col" class="n">Mayor</th>
+                            <th scope="col" class="n">Gran mayor</th>
+                            <th scope="col"><span class="sr-only">Ver ficha</span></th>
                         </tr>
                     </thead>
-                    <tbody id="filasInv"></tbody>
                 </table>
             </div>
             <p class="nota" id="notaInv" hidden></p>
-            <div class="empty" id="vacioInv" hidden><i class="fas fa-box-open"></i>
+            <div class="vacio" id="vacioInv" hidden>
+                <i class="fas fa-box-open" aria-hidden="true"></i>
                 <p id="vacioTxt"></p>
+                <div class="vacio-acts" id="vacioActs"></div>
             </div>
         </section>
 
-        <section class="panel" id="panKardex" role="tabpanel" aria-labelledby="tabKardex" hidden>
-            <div class="tools">
+        <!-- ───────── KARDEX ───────── -->
+        <section class="panel panel-inv" id="panKardex" role="tabpanel" aria-labelledby="tabKardex" hidden>
+            <div class="barra barra-k">
                 <div class="field"><label for="kSeccion">Sección</label>
                     <select id="kSeccion">
                         <option value="">Todas</option>
@@ -101,105 +112,213 @@
                 </div>
                 <div class="field"><label for="kDesde">Desde</label><input id="kDesde" type="date" /></div>
                 <div class="field"><label for="kHasta">Hasta</label><input id="kHasta" type="date" /></div>
-                <button type="button" class="btn btn-ghost" id="kQuitar" hidden></button>
             </div>
-            <h2>Kardex <span class="count" id="contK">0</span></h2>
-            <div class="table-wrap" aria-busy="false">
-                <table class="tabla-resp">
-                    <caption class="sr-only">Movimientos de inventario (kardex)</caption>
+
+            <div class="franja-estado">
+                <div class="filtros" role="group" aria-label="Periodo">
+                    <button type="button" class="filtro" data-preset="hoy" aria-pressed="false">Hoy</button>
+                    <button type="button" class="filtro" data-preset="7d" aria-pressed="false">Últimos 7 días</button>
+                    <button type="button" class="filtro" data-preset="mes" aria-pressed="false">Este mes</button>
+                    <button type="button" class="filtro" data-preset="todo" aria-pressed="true">Todo</button>
+                </div>
+                <p class="metricas" id="resumenK" aria-live="polite"></p>
+            </div>
+
+            <p class="pill-filtro" id="kFiltroVar" hidden>
+                <span>Solo este producto: <strong id="kVarTxt"></strong></span>
+                <button type="button" id="kQuitar" aria-label="Quitar el filtro de producto"><i
+                        class="fas fa-xmark"></i></button>
+            </p>
+
+            <div class="inv-lista" aria-busy="false" id="listaK">
+                <table class="inv-tabla tabla-k" id="tablaK" data-no-resp>
+                    <caption class="sr-only">Movimientos de inventario (kardex), agrupados por día</caption>
                     <thead>
                         <tr>
-                            <th scope="col">Fecha</th>
+                            <th scope="col">Hora</th>
                             <th scope="col">Producto</th>
                             <th scope="col">Movimiento</th>
                             <th scope="col" class="n">Cantidad</th>
                             <th scope="col" class="n">Saldo</th>
-                            <th scope="col" class="n">Costo</th>
+                            <th scope="col" class="n" data-admin-only>Costo</th>
                             <th scope="col">Usuario</th>
                             <th scope="col">Detalle</th>
                         </tr>
                     </thead>
-                    <tbody id="filasK"></tbody>
                 </table>
             </div>
             <p class="nota" id="notaK" hidden></p>
-            <div class="empty" id="vacioK" hidden><i class="fas fa-clock-rotate-left"></i>
-                <p>Sin movimientos para estos filtros.</p>
+            <div class="vacio" id="vacioK" hidden><i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
+                <p>No hay movimientos con estos filtros.</p>
             </div>
         </section>
     </main>
 
     <p id="aviso" class="aviso" role="status" hidden></p>
 
-    <dialog class="dlg" id="dlgProducto" aria-labelledby="hProd">
-        <form id="formProducto" novalidate>
-            <h2 id="hProd">Nuevo producto</h2>
-            <div class="grid-campos">
-                <div class="field"><label for="pNom">Nombre</label><input id="pNom" name="nombre" maxlength="120"
-                        required /></div>
-                <div class="field"><label for="pMarca">Marca (opcional)</label><input id="pMarca" name="marca"
-                        maxlength="60" /></div>
-                <div class="field"><label for="pSec">Sección</label><select id="pSec" name="seccion_id" required>
-                        <option value="">Elige una sección</option>
-                    </select></div>
+    <!-- ───────── FICHA DE VARIANTE ───────── -->
+    <dialog class="inv-dlg inv-dlg-ficha" id="dlgFicha" aria-labelledby="hFicha">
+        <div class="inv-form" id="fichaCuerpo"></div>
+    </dialog>
+
+    <!-- ───────── ENTRADA DE MERCANCÍA ───────── -->
+    <dialog class="inv-dlg inv-dlg-ancho" id="dlgEntrada" aria-labelledby="hEntrada">
+        <form class="inv-form" id="formEntrada" novalidate>
+            <header class="inv-cab">
+                <div>
+                    <h2 id="hEntrada">Entrada de mercancía</h2>
+                    <p class="muted">Escanea o busca cada producto. Si es nuevo, créalo sin salir de aquí.</p>
+                </div>
+                <button type="button" class="inv-x" data-cerrar aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+            </header>
+            <div class="inv-cuerpo">
+                <div class="compra">
+                    <div class="field"><label for="lProv">Proveedor</label>
+                        <select id="lProv">
+                            <option value="">Sin proveedor</option>
+                        </select>
+                    </div>
+                    <div class="field" id="filaNuevoProv" hidden><label for="lNuevoProv">Nombre del proveedor
+                            nuevo</label>
+                        <input id="lNuevoProv" maxlength="120" autocomplete="off" />
+                    </div>
+                    <div class="field"><label for="lFact">N.º de factura <span class="opc">(opcional)</span></label>
+                        <input id="lFact" maxlength="40" autocomplete="off" />
+                    </div>
+                </div>
+
+                <div class="lineas-bloque">
+                    <div class="lineas-cab" aria-hidden="true">
+                        <span>Producto</span><span>Cantidad</span><span>Costo unitario</span><span>Subtotal</span><span></span>
+                    </div>
+                    <div id="lineas" class="lineas"></div>
+                    <button type="button" class="btn btn-ghost" id="btnOtraLinea"><i class="fas fa-plus"></i> Agregar
+                        línea</button>
+                </div>
             </div>
-            <div id="variantes" class="variantes"></div>
-            <button type="button" class="btn btn-ghost" id="btnOtraVar"><i class="fas fa-plus"></i> Agregar otra
-                variante</button>
-            <div class="dlg-foot">
+            <footer class="inv-pie">
+                <p class="total-resumen" aria-live="polite"><span>Resumen de la entrada</span><strong
+                        id="totalEntrada">0 unidades · $ 0,00</strong></p>
+                <p class="form-error" id="errEntrada" role="alert" hidden></p>
+                <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button
+                        type="submit" class="btn btn-primary">Registrar entrada</button></div>
+            </footer>
+        </form>
+    </dialog>
+
+    <!-- ───────── PRODUCTO NUEVO ───────── -->
+    <dialog class="inv-dlg inv-dlg-ancho" id="dlgProducto" aria-labelledby="hProd">
+        <form class="inv-form" id="formProducto" novalidate>
+            <header class="inv-cab">
+                <div>
+                    <h2 id="hProd">Nuevo producto</h2>
+                    <p class="muted" id="subProd">Escribe los datos una sola vez: todas las variantes los heredan.</p>
+                </div>
+                <button type="button" class="inv-x" data-cerrar aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+            </header>
+            <div class="inv-cuerpo">
+                <section class="seccion" aria-labelledby="tDatos">
+                    <h3 id="tDatos">Datos del producto</h3>
+                    <div class="cols cols-datos">
+                        <div class="field f-nombre"><label for="pNom">Nombre</label><input id="pNom" name="nombre"
+                                maxlength="120" autocomplete="off" required /></div>
+                        <div class="field"><label for="pMarca">Marca <span class="opc">(opcional)</span></label><input
+                                id="pMarca" name="marca" maxlength="60" autocomplete="off" /></div>
+                        <div class="field"><label for="pSec">Sección</label><select id="pSec" name="seccion_id"
+                                required>
+                                <option value="">Elige una sección</option>
+                            </select></div>
+                    </div>
+                </section>
+
+                <section class="seccion seccion-precios" aria-labelledby="tPrecios">
+                    <h3 id="tPrecios">Precios en USD</h3>
+                    <div class="precios-grid">
+                        <div class="field"><label for="bCosto">Costo</label><input id="bCosto" data-base="precio_costo"
+                                type="number" min="0" max="1000000" step="0.01" inputmode="decimal" /></div>
+                        <div class="field"><label for="bDetal">Precio detal</label><input id="bDetal"
+                                data-base="precio_detal" type="number" min="0.01" max="1000000" step="0.01"
+                                inputmode="decimal" required /></div>
+                        <div class="field"><label for="bMayor">Precio mayor</label><input id="bMayor"
+                                data-base="precio_mayor" type="number" min="0" max="1000000" step="0.01"
+                                inputmode="decimal" /></div>
+                        <div class="field"><label for="bCantMayor">Mayor desde (unid.)</label><input id="bCantMayor"
+                                data-base="cantidad_mayor" type="number" min="0" max="1000000" step="1"
+                                inputmode="numeric" /></div>
+                        <div class="field"><label for="bGran">Precio gran mayor</label><input id="bGran"
+                                data-base="precio_gran_mayor" type="number" min="0" max="1000000" step="0.01"
+                                inputmode="decimal" /></div>
+                        <div class="field"><label for="bCantGran">Gran mayor desde (unid.)</label><input
+                                id="bCantGran" data-base="cantidad_gran_mayor" type="number" min="0" max="1000000"
+                                step="1" inputmode="numeric" /></div>
+                    </div>
+                    <p class="hint" id="margenProd" aria-live="polite">Mayor y gran mayor son opcionales: indica el
+                        precio y desde cuántas unidades aplica.</p>
+                </section>
+
+                <section class="seccion" aria-labelledby="tStock">
+                    <h3 id="tStock">Control de stock</h3>
+                    <div class="cols cols-stock">
+                        <div class="field"><label for="bMin">Mínimo <span class="opc">(avisa stock bajo)</span></label><input
+                                id="bMin" data-base="cantidad_minima" type="number" min="0" max="1000000" step="1"
+                                inputmode="numeric" /></div>
+                        <div class="field"><label for="bMax">Máximo <span class="opc">(avisa stock alto)</span></label><input
+                                id="bMax" data-base="cantidad_maxima" type="number" min="0" max="1000000" step="1"
+                                inputmode="numeric" /></div>
+                        <label class="interruptor" for="pLotes"><input id="pLotes" type="checkbox" />
+                            <span>Maneja lotes y vencimiento</span></label>
+                    </div>
+                </section>
+
+                <section class="seccion" aria-labelledby="tVars">
+                    <div class="seccion-cab">
+                        <h3 id="tVars">Variantes <span class="count" id="contVar">1</span></h3>
+                    </div>
+                    <p class="hint">Una por cada color, talla o presentación. Si el producto no tiene variantes, deja una
+                        sola fila sin color ni talla.</p>
+                    <div id="variantes" class="variantes-lista"></div>
+                    <button type="button" class="btn btn-ghost" id="btnOtraVar"><i class="fas fa-plus"></i> Agregar
+                        variante</button>
+                </section>
+            </div>
+            <footer class="inv-pie">
                 <p class="form-error" id="errProd" role="alert" hidden></p>
                 <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button
-                        type="submit" class="btn btn-primary">Guardar producto</button></div>
-            </div>
+                        type="submit" class="btn btn-primary" id="btnGuardarProd">Guardar producto</button></div>
+            </footer>
         </form>
     </dialog>
 
-    <dialog class="dlg" id="dlgLlegada" aria-labelledby="hLleg">
-        <form id="formLlegada" novalidate>
-            <h2 id="hLleg">Registrar llegada</h2>
-            <div class="grid-campos">
-                <div class="field"><label for="lProv">Proveedor</label><select id="lProv">
-                        <option value="">Sin proveedor</option>
-                    </select></div>
-                <div class="field"><label for="lNuevoProv">Proveedor nuevo</label><input id="lNuevoProv" maxlength="120"
-                        placeholder="Si no está en la lista" /></div>
-                <div class="field"><label for="lFact">Número de factura (opcional)</label><input id="lFact"
-                        maxlength="40" /></div>
+    <!-- ───────── SALIDA / AJUSTE ───────── -->
+    <dialog class="inv-dlg inv-dlg-sm" id="dlgMov" aria-labelledby="hMov">
+        <form class="inv-form" id="formMov" novalidate>
+            <header class="inv-cab">
+                <h2 id="hMov">Registrar salida</h2>
+                <button type="button" class="inv-x" data-cerrar aria-label="Cerrar"><i class="fas fa-xmark"></i></button>
+            </header>
+            <div class="inv-cuerpo">
+                <div class="mov-prod" id="movProducto"></div>
+                <fieldset class="segmento" id="filaSentido" hidden>
+                    <legend class="sr-only">Tipo de ajuste</legend>
+                    <label><input type="radio" name="sentido" value="salida" checked /><span><i
+                                class="fas fa-minus"></i> Restar unidades</span></label>
+                    <label><input type="radio" name="sentido" value="entrada" /><span><i class="fas fa-plus"></i> Sumar
+                            unidades</span></label>
+                </fieldset>
+                <div class="cols cols-mov">
+                    <div class="field"><label for="mCant">Cantidad</label><input id="mCant" type="number" min="1"
+                            max="100000" step="1" inputmode="numeric" required /></div>
+                    <div class="field"><label for="mMotivo">Motivo</label><select id="mMotivo" required></select></div>
+                </div>
+                <p class="mov-prev" id="movPreview" aria-live="polite"></p>
+                <div class="field"><label for="mDetalle" id="lblDetalle">Detalle <span class="opc">(opcional)</span></label><input
+                        id="mDetalle" maxlength="200" autocomplete="off" /></div>
             </div>
-            <div id="lineas" class="variantes"></div>
-            <button type="button" class="btn btn-ghost" id="btnOtraLinea"><i class="fas fa-plus"></i> Agregar
-                línea</button>
-            <div class="dlg-foot">
-                <p class="total-bar" aria-live="polite"><span>Resumen de la llegada</span><strong id="totalLlegada">0
-                        unidades · Total: $ 0,00</strong></p>
-                <p class="form-error" id="errLleg" role="alert" hidden></p>
-                <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button
-                        type="submit" class="btn btn-primary">Registrar llegada</button></div>
-            </div>
-        </form>
-    </dialog>
-
-    <dialog class="dlg dlg-sm" id="dlgMov" aria-labelledby="hMov">
-        <form id="formMov" novalidate>
-            <h2 id="hMov">Salida</h2>
-            <p class="muted" id="movProducto"></p>
-            <div class="field" id="filaSentido"><label for="mSentido">Tipo de ajuste</label>
-                <select id="mSentido">
-                    <option value="salida">Restar unidades</option>
-                    <option value="entrada">Sumar unidades</option>
-                </select>
-            </div>
-            <div class="field"><label for="mCant">Cantidad</label><input id="mCant" type="number" min="1" max="100000"
-                    step="1" inputmode="numeric" required /></div>
-            <p class="preview" id="movPreview" aria-live="polite"></p>
-            <div class="field"><label for="mMotivo">Motivo</label><select id="mMotivo" required></select></div>
-            <div class="field"><label for="mDetalle">Detalle (opcional)</label><input id="mDetalle" maxlength="200" />
-            </div>
-            <div class="dlg-foot">
+            <footer class="inv-pie">
                 <p class="form-error" id="errMov" role="alert" hidden></p>
                 <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button
                         type="submit" class="btn btn-primary" id="btnMov">Registrar salida</button></div>
-            </div>
+            </footer>
         </form>
     </dialog>
 </body>
