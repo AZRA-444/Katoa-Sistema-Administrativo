@@ -22,6 +22,9 @@ MSG_CUENTA = "Tu cuenta está desactivada o sin acceso configurado. Contacta al 
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def do_POST(self):
         if not c.config_completa():
             return c.responder(self, 500, {"error": "Configuración del servidor incompleta."})

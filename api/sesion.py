@@ -20,6 +20,9 @@ MSG_NO_DISPONIBLE = "Servicio no disponible. Intenta de nuevo en un momento."
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def do_GET(self):
         if not c.config_completa():
             return c.responder(self, 500, {"error": "Configuración del servidor incompleta."})

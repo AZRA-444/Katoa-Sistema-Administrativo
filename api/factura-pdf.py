@@ -5,6 +5,10 @@ POST {id_factura, telefono}            → reenvía ese PDF por WhatsApp (botón
 
 Exige sesión activa (cookie HttpOnly). El PDF se genera al guardar la factura
 (api/enviar-factura.py) y vive en el bucket privado `facturas` de Supabase Storage.
+
+Permisos (antes cualquier usuario podía ver cualquier factura y enviarla a cualquier número):
+  · «personal» solo puede ver/reenviar facturas que emitió él mismo.
+  · El WhatsApp va al teléfono guardado en la factura. Enviarlo a OTRO número exige rol encargado o superior.
 """
 import os
 import re
@@ -28,17 +32,48 @@ def _error(h, status, mensaje):
     c.responder(h, status, {"status": "error", "message": mensaje})
 
 
+def _digitos(tel):
+    """Últimos 10 dígitos: compara +58 412 1234567, 0412-1234567 y 4121234567 como el mismo número."""
+    return re.sub(r"\D", "", tel or "")[-10:]
+
+
+def _factura(id_factura):
+    r = c._http.get(f"{c.SUPABASE_URL}/rest/v1/facturas",
+                    params={"select": "id_factura,vendedor,telefono", "id_factura": f"eq.{id_factura}", "limit": "1"},
+                    headers=c._hdr_servicio(), timeout=c.TIMEOUT)
+    if r.status_code != 200:
+        print(f"[factura-pdf] facturas {r.status_code}: {r.text[:200]}", file=sys.stderr)
+        raise RuntimeError("consulta de factura fallida")
+    filas = r.json()
+    return filas[0] if filas else None
+
+
+def _autorizar(u, id_factura):
+    """Devuelve la fila de la factura si este usuario puede verla; si no, lanza ErrorPeticion."""
+    f = _factura(id_factura)
+    if not f:
+        raise c.ErrorPeticion(404, "No se encontró la factura.")
+    if c.NIVELES.get(u["rol"], 0) < c.NIVELES["encargado"] and (f.get("vendedor") or "") != (u.get("nombre") or ""):
+        raise c.ErrorPeticion(403, "Solo puedes ver las facturas que emitiste tú.")
+    return f
+
+
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def _validar(self):
         """Devuelve True si se puede continuar; si no, ya respondió el error."""
         if not c.config_completa():
             _error(self, 500, "Configuración del servidor incompleta.")
         elif not c.origen_valido(self):
             _error(self, 403, "Origen no permitido.")
-        elif not c.sesion_activa(self):
-            _error(self, 401, "Sesión expirada. Inicia sesión de nuevo.")
         else:
-            return True
+            self.usuario = c.usuario_sesion(self)
+            if not self.usuario:
+                _error(self, 401, "Sesión expirada. Inicia sesión de nuevo.")
+            else:
+                return True
         return False
 
     def do_GET(self):
@@ -48,6 +83,7 @@ class handler(BaseHTTPRequestHandler):
             id_factura = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             if not ID_RE.match(id_factura):
                 return _error(self, 400, "Id de factura inválido.")
+            _autorizar(self.usuario, id_factura)
             pdf = wa.descargar_pdf(id_factura)
         except c.ErrorPeticion as e:
             return _error(self, e.status, e.mensaje)
@@ -75,6 +111,9 @@ class handler(BaseHTTPRequestHandler):
                 return _error(self, 400, "Id de factura inválido.")
             if not TELEFONO_RE.match(telefono):
                 return _error(self, 400, "Teléfono inválido.")
+            f = _autorizar(self.usuario, id_factura)
+            if _digitos(telefono) != _digitos(f.get("telefono")) and c.NIVELES.get(self.usuario["rol"], 0) < c.NIVELES["encargado"]:
+                return _error(self, 403, "Solo un encargado puede enviar la factura a un número distinto al del cliente.")
             pdf = wa.descargar_pdf(id_factura)
             if pdf is None:
                 return _error(self, 404, "No se encontró el PDF de esta factura.")

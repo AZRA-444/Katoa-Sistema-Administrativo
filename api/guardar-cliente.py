@@ -46,6 +46,9 @@ def _error(h, status, mensaje):
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     # ── GET: Consulta para Autorrellenado ───────────────────────────────────
     def do_GET(self):
         if not c.config_completa():

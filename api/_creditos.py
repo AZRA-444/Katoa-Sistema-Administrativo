@@ -110,9 +110,8 @@ def crear_cuenta(cuenta):
     raise c.ErrorPeticion(502, MSG_NO_REGISTRADA)
 
 
-def cuenta_de_factura(id_factura):
-    """Fila de cuentas_por_cobrar de una factura, o None. Si la tabla aún no existe (SQL sin ejecutar) o la
-    consulta falla, devuelve None: el resto del sistema sigue funcionando para facturas que no son a crédito."""
+def _buscar_cuenta(id_factura):
+    """(fila, ok): `ok` es False si la consulta falló (no se sabe si la factura tiene cuenta)."""
     try:
         r = c._http.get(
             f"{c.SUPABASE_URL}/rest/v1/cuentas_por_cobrar",
@@ -121,46 +120,32 @@ def cuenta_de_factura(id_factura):
         )
         if r.status_code != 200:
             print(f"[creditos] cuenta_de_factura {r.status_code}: {r.text[:200]}", file=sys.stderr)
-            return None
+            return None, False
         filas = r.json()
-        return filas[0] if filas else None
+        return (filas[0] if filas else None), True
     except Exception as e:  # noqa: BLE001
         print(f"[creditos] cuenta_de_factura {e!r}", file=sys.stderr)
-        return None
+        return None, False
 
 
-def anular_por_factura(id_factura):
-    """Marca como anulada la cuenta de una factura recién anulada. Mejor esfuerzo: la factura ya quedó anulada,
-    así que un fallo aquí se registra en el log y no se le muestra como error al usuario.
-    Los abonos ya recibidos se conservan en cobros_abonos (el dinero sí entró; devolverlo es una gestión manual).
-    Devuelve el abonado (Decimal) si la cuenta tenía abonos, para avisar; None en otro caso."""
-    cuenta = cuenta_de_factura(id_factura)
-    if not cuenta or cuenta.get("estado") == "anulada":
-        return None
-    try:
-        r = c._http.patch(
-            f"{c.SUPABASE_URL}/rest/v1/cuentas_por_cobrar",
-            params={"id_factura": f"eq.{id_factura}"},
-            json={"estado": "anulada"},
-            headers=c._hdr_servicio({"Prefer": "return=minimal"}),
-            timeout=c.TIMEOUT,
-        )
-        if r.status_code not in (200, 204):
-            print(f"[creditos] anular_por_factura {id_factura} {r.status_code}: {r.text[:300]}", file=sys.stderr)
-    except Exception as e:  # noqa: BLE001
-        print(f"[creditos] anular_por_factura {id_factura} {e!r}", file=sys.stderr)
-    try:
-        abonado = Decimal(str(cuenta.get("abonado_usd") or 0))
-    except InvalidOperation:
-        abonado = Decimal(0)
-    return abonado if abonado > 0 else None
+def cuenta_de_factura(id_factura):
+    """Fila de cuentas_por_cobrar de una factura, o None. Si la tabla aún no existe (SQL sin ejecutar) o la
+    consulta falla, devuelve None: el resto del sistema sigue funcionando para facturas que no son a crédito."""
+    return _buscar_cuenta(id_factura)[0]
 
 
 def ajustar_por_devolucion(id_factura, lineas):
     """Tras registrar una devolución: si la factura es a crédito, baja la deuda por el valor devuelto.
-    `lineas` = [{detalle_id, cantidad}, ...] ya validadas. Devuelve el dict de la función SQL
-    ({aplicada, total_usd, saldo_usd, reembolsar_usd}) o None si la factura no es a crédito o falló."""
-    if not cuenta_de_factura(id_factura):
+    `lineas` = [{detalle_id, cantidad}, ...] ya validadas. Devuelve:
+      · None                       la factura no es a crédito (nada que ajustar);
+      · {aplicada, total_usd, saldo_usd, reembolsar_usd}   la deuda se ajustó (resultado de la función SQL);
+      · {"fallo": True}            hay que ajustar la deuda y NO se pudo: quien llama debe AVISAR al usuario
+                                   (la devolución ya quedó registrada; la deuda se corrige a mano en Cobros)."""
+    FALLO = {"fallo": True}
+    cuenta, ok = _buscar_cuenta(id_factura)
+    if not ok:
+        return FALLO
+    if not cuenta:
         return None
     try:
         ids = ",".join(str(int(x["detalle_id"])) for x in lineas)
@@ -171,11 +156,13 @@ def ajustar_por_devolucion(id_factura, lineas):
         )
         if r.status_code != 200:
             print(f"[creditos] ajustar devolución {id_factura} precios {r.status_code}: {r.text[:300]}", file=sys.stderr)
-            return None
+            return FALLO
         precios = {int(f["id"]): Decimal(str(f["precio_unitario"])) for f in r.json()}
         monto = _r2(sum((precios.get(int(x["detalle_id"]), Decimal(0)) * Decimal(str(x["cantidad"])) for x in lineas),
                         Decimal(0)))
-        if monto <= 0:
+        if not precios:
+            return FALLO
+        if monto <= 0:   # renglones de precio 0: no hay deuda que bajar
             return None
         r = c._http.post(
             f"{c.SUPABASE_URL}/rest/v1/rpc/ajustar_cuenta_devolucion",
@@ -184,9 +171,9 @@ def ajustar_por_devolucion(id_factura, lineas):
         )
         if r.status_code != 200:
             print(f"[creditos] ajustar devolución {id_factura} rpc {r.status_code}: {r.text[:300]}", file=sys.stderr)
-            return None
+            return FALLO
         d = r.json()
-        return d if isinstance(d, dict) and d.get("aplicada") else None
+        return d if isinstance(d, dict) and d.get("aplicada") else FALLO
     except Exception as e:  # noqa: BLE001
         print(f"[creditos] ajustar devolución {id_factura} {e!r}", file=sys.stderr)
-        return None
+        return FALLO

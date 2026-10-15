@@ -231,9 +231,13 @@ function initPestanas() {
 }
 
 //--- AUTOGUARDADO: un pedido en curso no se pierde por recargar, cerrar o quedarse sin conexión ---//
+// Lleva datos de clientes (nombre, cédula, teléfono): se marca con el usuario y la hora para no mostrárselo a
+// otra persona que use el mismo equipo ni conservarlo días; además Auth.cerrarSesion() lo borra.
+const BORRADOR_VIGENCIA_MS = 12 * 60 * 60 * 1000;
 function guardarBorrador() {
     try {
         localStorage.setItem(STORAGE.borrador, JSON.stringify({
+            uid: window.Auth?.usuario?.id || null, guardado: Date.now(),
             pedidos: state.pedidos, actualId: state.actualId, pedidoSeq: state.pedidoSeq, itemSeq: state.itemSeq,
         }));
     } catch { /* sin espacio o modo privado: se sigue trabajando sin autoguardado */ }
@@ -252,6 +256,12 @@ function restaurarBorrador() {
     let d = null;
     try { d = JSON.parse(localStorage.getItem(STORAGE.borrador)); } catch { /* borrador corrupto: se ignora */ }
     if (!d || !Array.isArray(d.pedidos)) return false;
+    // Solo el mismo usuario y de las últimas horas; de lo contrario se descarta (y se borra).
+    const uid = window.Auth?.usuario?.id;
+    if (!uid || d.uid !== uid || !(Date.now() - Number(d.guardado) < BORRADOR_VIGENCIA_MS)) {
+        try { localStorage.removeItem(STORAGE.borrador); } catch { /* sin acceso al almacenamiento */ }
+        return false;
+    }
     const pedidos = d.pedidos
         .filter((p) => p && Number.isInteger(p.id) && p.cliente && typeof p.cliente === 'object' && Array.isArray(p.items))
         .map((p) => ({

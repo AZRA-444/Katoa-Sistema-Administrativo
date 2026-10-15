@@ -226,6 +226,9 @@ def _entrada(h, escribe=False):
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def _ok(self, **extra):
         c.responder(self, 200, {"status": "ok", **extra})
 

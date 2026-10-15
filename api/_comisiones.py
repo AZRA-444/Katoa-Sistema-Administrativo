@@ -187,6 +187,24 @@ def pagar(d, u, ini_fin, ventas):
     if monto > pendiente + Decimal("0.005"):
         raise c.ErrorPeticion(409, f"El monto supera la comisión pendiente de {vendedor} (${float(pendiente):.2f}).")
 
+    # Camino normal: función SQL atómica (sql/comisiones_pago_atomico.sql) → bloquea, revalida y crea egreso + pago juntos.
+    comision = _d(fila["comision_usd"]) if fila else Decimal(0)
+    rpc = c._http.post(f"{c.SUPABASE_URL}/rest/v1/rpc/registrar_pago_comision",
+                       json={"p_mes": mes, "p_vendedor": vendedor, "p_monto": float(monto),
+                             "p_comision": float(comision), "p_usuario": u["id"]},
+                       headers=c._hdr_servicio(), timeout=c.TIMEOUT)
+    if rpc.status_code in (200, 204):
+        return
+    if rpc.status_code == 404 or "PGRST202" in rpc.text:
+        # La función aún no existe (SQL sin ejecutar): se usa el camino anterior, que NO es atómico.
+        print("[comisiones] ⚠ falta sql/comisiones_pago_atomico.sql: pago sin bloqueo transaccional", file=sys.stderr)
+    else:
+        exceso = re.search(r"comision_excede:([\d.]+)", rpc.text)
+        if exceso:
+            raise c.ErrorPeticion(409, f"El monto supera la comisión pendiente de {vendedor} (${float(exceso.group(1)):.2f}).")
+        print(f"[comisiones] rpc pago {rpc.status_code}: {rpc.text[:300]}", file=sys.stderr)
+        raise c.ErrorPeticion(502, "No se pudo registrar el pago de la comisión. Inténtalo de nuevo.")
+
     hoy = datetime.now(VENEZUELA).date().isoformat()
     r = c._http.post(f"{c.SUPABASE_URL}/rest/v1/egresos",
                      json={"fecha": hoy, "categoria": "Comisiones", "monto_usd": float(monto), "creado_por": u["id"],

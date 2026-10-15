@@ -88,7 +88,15 @@
             }
         },
 
+        // Datos locales con información de clientes o del usuario: se borran al salir (equipos compartidos).
+        limpiarDatosLocales() {
+            for (const k of ['pedidosKatoaBorrador', 'vendedorActual']) {
+                try { localStorage.removeItem(k); } catch (_) { /* almacenamiento no disponible */ }
+            }
+        },
+
         async cerrarSesion() {
+            this.limpiarDatosLocales();
             try {
                 await fetch('/api/sesion', {
                     method: 'POST',

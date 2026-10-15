@@ -161,6 +161,9 @@ def _anular(d, u):
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def _fallo(self, e):
         c.responder(self, e.status, {"status": "error", "message": e.mensaje})
 

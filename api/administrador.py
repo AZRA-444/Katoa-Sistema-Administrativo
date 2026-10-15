@@ -25,7 +25,9 @@ import _devoluciones as dev  # noqa: E402
 import _usuarios as usr  # noqa: E402
 
 MAX_BODY = 32 * 1024     # las devoluciones pueden traer hasta 150 líneas
-LIMITE = 5000
+PAGINA = 1000           # filas por consulta a Supabase
+MAX_VENTAS = 20000      # tope de facturas por mes; más que eso falla en vez de dar totales parciales
+MAX_FILAS = 20000
 MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CATEGORIAS = ["Alquiler", "Servicios", "Nómina", "Comisiones", "Publicidad", "Transporte",
@@ -54,55 +56,71 @@ def _ini_fin(mes):
     return _rango(mes)
 
 
-def _ventas(ini, fin):
+def _todas(tabla, params, tope, que):
+    """Todas las filas, de 1000 en 1000. Si pasan de `tope` falla: un total parcial (ventas, costo, comisiones) engaña."""
+    filas = []
+    while True:
+        r = _get(tabla, [*params, ("limit", str(PAGINA)), ("offset", str(len(filas)))])
+        if r.status_code != 200:
+            _fallo(r, tabla)
+        lote = r.json()
+        filas.extend(lote)
+        if len(lote) < PAGINA:
+            return filas
+        if len(filas) >= tope:
+            raise c.ErrorPeticion(400, f"Hay demasiados {que} en el mes (más de {tope:,}).".replace(",", "."))
+
+
+def _col_fecha(ini, fin):
+    """Detecta la columna de fecha de `facturas` (una sola vez por instancia)."""
     global _fecha_col
     for col in ([_fecha_col] if _fecha_col else FECHA_COLS):
-        r = _get("facturas", [("select", "*"), ("order", f"{col}.desc"), ("limit", str(LIMITE)),
+        r = _get("facturas", [("select", "id_factura"), ("limit", "1"),
                               (col, f"gte.{ini}T00:00:00-04:00"), (col, f"lt.{fin}T00:00:00-04:00")])
         if r.status_code == 200:
             _fecha_col = col
-            break
+            return col
         if r.status_code != 400:  # 400 = la columna no existe: se prueba la siguiente
             _fallo(r, "facturas")
-    else:
-        raise c.ErrorPeticion(500, "No se encontró la columna de fecha de las facturas.")
+    raise c.ErrorPeticion(500, "No se encontró la columna de fecha de las facturas.")
+
+
+def _ventas(ini, fin):
+    col = _col_fecha(ini, fin)
+    filas = _todas("facturas", [("select", "*"), ("order", f"{col}.desc,id_factura.desc"),
+                                (col, f"gte.{ini}T00:00:00-04:00"), (col, f"lt.{fin}T00:00:00-04:00")], MAX_VENTAS, "facturas")
     salida = []
-    for f in r.json():
+    for f in filas:
         if f.get("anulada") is True or str(f.get("estado") or "").lower() in ("anulada", "cancelada"):
             continue
         salida.append({
             "id_factura": f.get("id_factura"), "nombre": f.get("nombre"), "apellido": f.get("apellido"),
             "cedula": f.get("cedula"), "vendedor": f.get("vendedor") or "Sin vendedor",
             "total_usd": float(f.get("total_usd") or 0), "metodo_pago": f.get("metodo_pago"),
-            "pagos_combinados": f.get("pagos_combinados"), "fecha": f.get(_fecha_col),
+            "pagos_combinados": f.get("pagos_combinados"), "fecha": f.get(col),
         })
     return salida
 
 
 def _costo_ventas(ini, fin):
-    """Costo de la mercancía vendida según el kardex. None si no se puede calcular."""
+    """Costo de la mercancía vendida según el kardex. None si no se puede calcular (o si el mes no cabe completo)."""
     try:
-        r = _get("inv_kardex", [("select", "tipo,cantidad,costo_unitario"), ("limit", "20000"),
-                                ("tipo", "in.(SALIDA_VENTA,DEVOLUCION_CLIENTE)"),
-                                ("creado_en", f"gte.{ini}T00:00:00-04:00"), ("creado_en", f"lt.{fin}T00:00:00-04:00")])
-        if r.status_code != 200:
-            return None
+        filas = _todas("inv_kardex", [("select", "tipo,cantidad,costo_unitario"), ("order", "id.asc"),
+                                      ("tipo", "in.(SALIDA_VENTA,DEVOLUCION_CLIENTE)"),
+                                      ("creado_en", f"gte.{ini}T00:00:00-04:00"), ("creado_en", f"lt.{fin}T00:00:00-04:00")],
+                       MAX_FILAS, "movimientos")
         total = 0.0
-        for f in r.json():
+        for f in filas:
             v = abs(float(f.get("cantidad") or 0)) * float(f.get("costo_unitario") or 0)
             total += v if f.get("tipo") == "SALIDA_VENTA" else -v
         return round(total, 2)
-    except (requests.RequestException, ValueError):
+    except (c.ErrorPeticion, requests.RequestException, ValueError):
         return None
 
 
 def _egresos(ini, fin):
-    r = _get("egresos", [("select", "id,fecha,categoria,descripcion,proveedor,monto_usd"),
-                         ("order", "fecha.desc,id.desc"), ("limit", str(LIMITE)),
-                         ("fecha", f"gte.{ini}"), ("fecha", f"lt.{fin}")])
-    if r.status_code != 200:
-        _fallo(r, "egresos")
-    return r.json()
+    return _todas("egresos", [("select", "id,fecha,categoria,descripcion,proveedor,monto_usd"), ("order", "fecha.desc,id.desc"),
+                              ("fecha", f"gte.{ini}"), ("fecha", f"lt.{fin}")], MAX_FILAS, "egresos")
 
 
 def _texto(v, nombre, minimo, maximo):
@@ -158,6 +176,9 @@ def _entrada(h, escribe=False):
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def _ok(self, **extra):
         c.responder(self, 200, {"status": "ok", **extra})
 
@@ -207,7 +228,10 @@ class handler(BaseHTTPRequestHandler):
             elif d.get("accion") == "devolucion_registrar":
                 resultado, ajuste = dev.registrar(d, u)
                 msg = "Devolución registrada."
-                if ajuste:  # la factura era a crédito: la deuda bajó en Cobros
+                if ajuste and ajuste.get("fallo"):  # era a crédito y la deuda NO se pudo ajustar: que se sepa
+                    msg += (" ⚠ La factura es a crédito y no se pudo bajar la deuda automáticamente: "
+                            "revisa la cuenta en Cobros y ajústala antes de cobrar.")
+                elif ajuste:  # la factura era a crédito: la deuda bajó en Cobros
                     msg += f" Factura a crédito: la deuda bajó y el saldo pendiente es ${float(ajuste.get('saldo_usd') or 0):.2f}."
                     if float(ajuste.get("reembolsar_usd") or 0) > 0:
                         msg += (f" El cliente ya había abonado de más: devuélvele ${float(ajuste['reembolsar_usd']):.2f} "

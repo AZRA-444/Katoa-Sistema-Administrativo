@@ -131,10 +131,13 @@ const colAbono = [
 ];
 
 function rCierre(d) {
-    const s = d.resumen, ab = d.abonos;
+    const s = d.resumen, ab = d.abonos, dv = d.devoluciones;
+    const hayDev = dv && !dv.no_disponible && dv.cantidad > 0;
     const nodos = [kpis([
         { t: 'Facturas', v: entero(s.facturas), s: s.facturas ? `Ticket promedio ${usd(s.ticket_promedio)}` : 'Sin ventas en este período' },
-        { t: 'Ventas a precio de lista', v: usd(s.lista_usd), tono: 'destacada' },
+        { t: 'Ventas', v: usd(s.ventas_usd), tono: 'destacada', s: s.descuento_usd > 0 ? `Ya con ${usd(s.descuento_usd)} de descuento por pago en divisas (lista: ${usd(s.lista_usd)})` : 'Lo cobrado y lo fiado de las facturas' },
+        hayDev && { t: 'Devoluciones', v: usd(dv.usd), s: `${plural(dv.cantidad, 'devolución', 'devoluciones')} · ${bs(dv.bs)}${dv.credito_usd > 0 ? ` · ${usd(dv.credito_usd)} eran de facturas a crédito (bajaron la deuda, no salió dinero)` : ''}` },
+        hayDev && { t: 'Ventas netas', v: usd(s.neto_usd), tono: 'destacada', s: 'Ventas menos devoluciones del período' },
         { t: 'Cobrado en dólares', v: usd(s.cobrado_usd), s: 'Efectivo, Zelle, Binance y partes en $' },
         { t: 'Cobrado en bolívares', v: bs(s.cobrado_bs), s: 'Pago móvil, punto de venta y efectivo en Bs' },
         { t: 'Efectivo en caja ($)', v: usd(s.efectivo_usd), s: 'Para contar los dólares' },
@@ -142,6 +145,7 @@ function rCierre(d) {
         s.credito_facturas > 0 && { t: 'Vendido a crédito', v: usd(s.credito_usd), s: `${plural(s.credito_facturas, 'factura', 'facturas')} · por cobrar` },
         ab && !ab.no_disponible && ab.cantidad > 0 && { t: 'Abonos de crédito cobrados', v: usd(ab.lista_usd), s: `${plural(ab.cantidad, 'abono', 'abonos')} · ${usd(ab.cobrado_usd)} en $ y ${bs(ab.cobrado_bs)}` },
     ])];
+    if (dv?.no_disponible) nodos.push(nota('No se pudieron consultar las devoluciones de este período: las ventas de arriba no las descuentan.'));
     if (s.credito_facturas > 0) nodos.push(nota('Las ventas a crédito no son dinero cobrado: aparecen en «Por método» con cobrado en cero y se cobran después en el módulo Cobros.'));
     if (s.facturas) {
         nodos.push(nota([
@@ -164,11 +168,11 @@ function rCierre(d) {
         ], ab.conciliacion)));
     }
     nodos.push(sec('Por vendedor', null, tabla('Por vendedor', [
-        { t: 'Vendedor', k: 'vendedor', titulo: true }, { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Ventas a precio de lista', k: 'lista_usd', m: 'usd' },
+        { t: 'Vendedor', k: 'vendedor', titulo: true }, { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Ventas', k: 'ventas_usd', m: 'usd' },
         { t: 'Cobrado en $', k: 'cobrado_usd', m: 'usd' }, { t: 'Cobrado en Bs', k: 'cobrado_bs', m: 'bs' },
     ], d.por_vendedor, {
         sinDatos: 'No hay ventas en este período.',
-        pie: d.por_vendedor.length > 1 ? ['Total', entero(s.facturas), usd(s.lista_usd), usd(s.cobrado_usd), bs(s.cobrado_bs)] : null,
+        pie: d.por_vendedor.length > 1 ? ['Total', entero(s.facturas), usd(s.ventas_usd), usd(s.cobrado_usd), bs(s.cobrado_bs)] : null,
     })));
     nodos.push(sec('Conciliación: pago móvil, Zelle y Binance', 'Compara cada referencia con tu estado de cuenta o tu billetera.', tabla('Conciliación', [
         { t: 'Hora', k: 'hora', m: 'hora', v: (r) => fechaHora(r.hora) }, { t: 'Factura', k: 'id_factura', cls: 'mono' }, { t: 'Método', k: 'etiqueta' },
@@ -201,12 +205,17 @@ function rFacturas(d) {
 
 function rVentas(d) {
     const s = d.resumen, md = s.mejor_dia;
+    const hayDev = s.devoluciones_cantidad > 0;
     const nodos = [kpis([
-        { t: 'Ventas a precio de lista', v: usd(s.ventas_usd), tono: 'destacada', s: `${plural(s.facturas, 'factura', 'facturas')}` },
+        { t: 'Ventas', v: usd(s.ventas_usd), tono: 'destacada', s: `${plural(s.facturas, 'factura', 'facturas')} · lo cobrado, con descuentos aplicados` },
+        hayDev && { t: 'Devoluciones', v: usd(s.devoluciones_usd), s: `${plural(s.devoluciones_cantidad, 'devolución', 'devoluciones')} registradas en el período` },
+        hayDev && { t: 'Ventas netas', v: usd(s.neto_usd), tono: 'destacada', s: 'Ventas menos devoluciones' },
         { t: 'Ticket promedio', v: usd(s.ticket_promedio), s: 'Por factura' },
         { t: 'Promedio por día con ventas', v: usd(s.promedio_diario), s: `${s.dias_con_ventas} de ${plural(s.dias, 'día', 'días')} con ventas` },
         md && { t: 'Mejor día', v: usd(md.ventas_usd), s: `${fechaISO(md.dia)} · ${plural(md.facturas, 'factura', 'facturas')}` },
     ])];
+    if (s.devoluciones_no_disponible) nodos.push(nota('No se pudieron consultar las devoluciones de este período: las ventas no las descuentan.'));
+    if (hayDev) nodos.push(nota('Las devoluciones se descuentan en el día en que se registraron, aunque la venta sea de otra fecha; por eso las tablas por día, hora y día de la semana muestran las ventas sin descontarlas.'));
     if (!s.facturas) { nodos.push(vacio('No hay ventas en este período.')); return nodos; }
     nodos.push(sec('Ventas por día', null,
         d.por_dia.length > 1 ? columnas(d.por_dia.map((x) => ({ valor: x.ventas_usd, tip: `${fechaISO(x.dia)}: ${usd(x.ventas_usd)}` })), fechaISO(d.por_dia[0].dia), fechaISO(d.por_dia.at(-1).dia)) : '',
@@ -218,6 +227,7 @@ function rVentas(d) {
         })));
     nodos.push(sec('Por vendedor', null, tabla('Ventas por vendedor', [
         { t: 'Vendedor', k: 'vendedor', titulo: true }, { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Ventas $', k: 'ventas_usd', m: 'usd' },
+        ...(hayDev ? [{ t: 'Devoluciones $', k: 'devoluciones_usd', m: 'usd' }, { t: 'Neto $', k: 'neto_usd', m: 'usd' }] : []),
         { t: 'Ticket promedio', k: 'ticket_promedio', m: 'usd' }, { t: 'Participación', k: 'participacion', m: 'pct' },
     ], d.por_vendedor)));
     nodos.push(sec('Horas con más ventas', 'Hora de Venezuela.', barras(d.por_hora.map((x) => ({ etq: `${String(x.hora).padStart(2, '0')}:00`, valor: x.ventas_usd, texto: `${usd(x.ventas_usd)} · ${x.facturas}` })))));
@@ -231,7 +241,7 @@ function rProductos(d) {
     const s = d.resumen;
     const nodos = [kpis([
         { t: 'Productos vendidos', v: entero(s.productos), s: 'Distintos en el período' }, { t: 'Unidades', v: entero(s.unidades) },
-        { t: 'Monto vendido', v: usd(s.monto_usd), tono: 'destacada' },
+        { t: 'Monto vendido', v: usd(s.monto_usd), tono: 'destacada', s: 'A precio de lista, sin descuentos ni devoluciones' },
     ])];
     nodos.push(sec('Más vendidos', s.productos > s.mostrados ? `Los ${s.mostrados} primeros de ${entero(s.productos)}.` : null, tabla('Productos más vendidos', [
         { t: '#', f: (r) => String(d.filas.indexOf(r) + 1), v: (r) => d.filas.indexOf(r) + 1, n: true },
@@ -245,12 +255,15 @@ function rClientes(d) {
     const s = d.resumen;
     const nodos = [kpis([
         { t: 'Clientes', v: entero(s.clientes), s: 'Distintos en el período' }, { t: 'Clientes recurrentes', v: entero(s.recurrentes), s: 'Compraron 2 veces o más' },
-        { t: 'Compras', v: usd(s.compras_usd), tono: 'destacada', s: plural(s.facturas, 'factura', 'facturas') },
+        { t: s.devoluciones_usd > 0 ? 'Compras netas' : 'Compras', v: usd(s.devoluciones_usd > 0 ? s.neto_usd : s.compras_usd), tono: 'destacada',
+            s: s.devoluciones_usd > 0 ? `${plural(s.facturas, 'factura', 'facturas')} · ${usd(s.compras_usd)} menos ${usd(s.devoluciones_usd)} devueltos` : plural(s.facturas, 'factura', 'facturas') },
     ])];
     nodos.push(sec('Mejores clientes', s.clientes > s.mostrados ? `Los ${s.mostrados} primeros de ${entero(s.clientes)}.` : null, tabla('Mejores clientes', [
         { t: '#', f: (r) => String(d.filas.indexOf(r) + 1), v: (r) => d.filas.indexOf(r) + 1, n: true },
         { t: 'Cliente', k: 'cliente', titulo: true }, { t: 'Cédula', k: 'cedula' }, { t: 'Teléfono', k: 'telefono' }, { t: 'Facturas', k: 'facturas', m: 'num' },
-        { t: 'Compras', k: 'compras_usd', m: 'usd' }, { t: 'Ticket promedio', k: 'ticket_promedio', m: 'usd' }, { t: 'Última compra', k: 'ultima', m: 'fechaHora' }, { t: 'Del total', k: 'participacion', m: 'pct' },
+        { t: 'Compras', k: 'compras_usd', m: 'usd' },
+        ...(s.devoluciones_usd > 0 ? [{ t: 'Devoluciones', k: 'devoluciones_usd', m: 'usd' }, { t: 'Neto', k: 'neto_usd', m: 'usd' }] : []),
+        { t: 'Ticket promedio', k: 'ticket_promedio', m: 'usd' }, { t: 'Última compra', k: 'ultima', m: 'fechaHora' }, { t: 'Del total', k: 'participacion', m: 'pct' },
     ], d.filas, { sinDatos: 'No hay compras en este período.' })));
     return nodos;
 }
@@ -260,14 +273,18 @@ const etiquetaPeriodo = (p, agrupar) => (agrupar === 'mes' ? `${p.slice(5)}/${p.
 function rFinanzas(d) {
     const s = d.resumen, pp = d.periodo_previo;
     const v = s.variacion_pct;
+    const hayDev = s.devoluciones_cantidad > 0;
     const nodos = [kpis([
         { t: 'Ingresos por ventas', v: usd(s.ventas_usd), tono: 'destacada', s: `${plural(s.facturas, 'factura', 'facturas')} · ${bs(s.ventas_bs)}` },
+        hayDev && { t: 'Devoluciones', v: usd(s.devoluciones_usd), s: plural(s.devoluciones_cantidad, 'devolución', 'devoluciones') },
+        hayDev && { t: 'Ingresos netos', v: usd(s.neto_usd), tono: 'destacada', s: 'Ventas menos devoluciones' },
         { t: 'Frente al período anterior', v: v == null ? 'Sin datos' : `${v > 0 ? '+' : ''}${porcentaje(v)}`, tono: v == null ? '' : v >= 0 ? 'ok' : 'mal',
             s: `Antes (${fechaISO(pp.desde)} a ${fechaISO(pp.hasta)}): ${usd(s.previo_ventas_usd)}, ${plural(s.previo_facturas, 'factura', 'facturas')}` },
         { t: 'Ticket promedio', v: usd(s.ticket_promedio) },
         { t: 'Cobrado en dólares', v: usd(s.cobrado_usd) }, { t: 'Cobrado en bolívares', v: bs(s.cobrado_bs) },
     ])];
     nodos.push(nota('Este reporte incluye solo los ingresos por ventas facturadas: los egresos y la utilidad no están aquí. Los dólares y los bolívares cobrados son monedas distintas y no se suman.'));
+    if (s.devoluciones_no_disponible) nodos.push(nota('No se pudieron consultar las devoluciones de este período: los ingresos no las descuentan.'));
     if (!s.facturas) { nodos.push(vacio('No hay ventas en este período.')); return nodos; }
     const porNombre = { dia: 'día', semana: 'semana', mes: 'mes' }[d.agrupar];
     const pp_ = d.por_periodo;
@@ -276,8 +293,9 @@ function rFinanzas(d) {
         tabla(`Ingresos por ${porNombre}`, [
             { t: d.agrupar === 'mes' ? 'Mes' : d.agrupar === 'semana' ? 'Semana desde' : 'Día', f: (r) => etiquetaPeriodo(r.periodo, d.agrupar), v: (r) => r.periodo, titulo: true },
             { t: 'Facturas', k: 'facturas', m: 'num' }, { t: 'Ventas $', k: 'ventas_usd', m: 'usd' }, { t: 'Ventas Bs', k: 'ventas_bs', m: 'bs' },
-        ], pp_, { pie: ['Total', entero(s.facturas), usd(s.ventas_usd), bs(s.ventas_bs)] })));
-    nodos.push(sec('Por método de pago', 'Participación sobre las ventas a precio de lista.', tabla('Ingresos por método de pago', [
+            ...(hayDev ? [{ t: 'Devoluciones $', k: 'devoluciones_usd', m: 'usd' }, { t: 'Neto $', k: 'neto_usd', m: 'usd' }] : []),
+        ], pp_, { pie: ['Total', entero(s.facturas), usd(s.ventas_usd), bs(s.ventas_bs), ...(hayDev ? [usd(s.devoluciones_usd), usd(s.neto_usd)] : [])] })));
+    nodos.push(sec('Por método de pago', 'Cada método se mide a precio de lista (antes de descuentos), por eso no suma igual que las ventas de arriba.', tabla('Ingresos por método de pago', [
         ...colMetodo, { t: 'Equivalente a precio de lista', k: 'lista_usd', m: 'usd' }, { t: 'Participación', k: 'participacion', m: 'pct' },
     ], d.por_metodo)));
     return nodos;

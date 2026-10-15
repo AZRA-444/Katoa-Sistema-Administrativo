@@ -557,6 +557,9 @@ def _error(h, status, mensaje):
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def do_POST(self):
         presupuesto = _Presupuesto()
         if not c.config_completa():

@@ -43,6 +43,9 @@ def consultar_tasa():
 
 
 class handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):   # sin log por petición: la URL lleva cédulas y búsquedas de clientes
+        pass
+
     def do_GET(self):
         if not c.config_completa():
             return _error(self, 500, "Configuración del servidor incompleta.")

@@ -16,6 +16,10 @@ GET ?tipo=...  (encargado, admin, sysadmin). Los costos del inventario solo los 
 
 Fechas AAAA-MM-DD en hora de Venezuela (UTC-4); «hasta» es inclusivo. Sin fechas: el día de hoy.
 Los totales de dinero nunca son parciales: si el rango trae demasiados registros se pide acotarlo.
+Las facturas ANULADAS no se cuentan en ningún reporte (cierre, ventas, productos, clientes, finanzas, listado).
+«Ventas» = total_usd (lo cobrado, ya con el descuento por pago en divisas), igual que el panel Administrador.
+Las DEVOLUCIONES se restan por la fecha en que se registraron: cierre, ventas, clientes y finanzas traen lo devuelto y la venta
+neta. Productos NO las descuenta (muestra lo vendido a precio de lista).
 """
 import os
 import re
@@ -60,6 +64,14 @@ COLS_LISTADO = ("id_factura,nombre,apellido,cedula,telefono,vendedor,subtotal_us
 
 
 # ── Números y fechas ────────────────────────────────────────────────────────
+def _venta(f):
+    """Venta de una factura = lo que se cobra (o queda por cobrar) YA con el descuento por pago en divisas: `total_usd`.
+    Es la misma cifra que usan el panel Administrador y las comisiones. El precio de lista (`subtotal_usd`) solo se
+    usa para el «equivalente a precio de lista» de cada método de pago."""
+    v = f.get("total_usd")
+    return _d(v) if v is not None else _d(f.get("subtotal_usd"))
+
+
 def _d(v):
     """Decimal seguro: None, vacío o basura cuentan como 0 (un dato raro no debe tumbar el reporte)."""
     if v is None or isinstance(v, bool):
@@ -163,11 +175,54 @@ def todo(tabla, params, tope, que):
             return filas
 
 
-def facturas_rango(desde, hasta, columnas=COLS_FACTURA, vendedor=None, extra=()):
-    params = [("select", columnas), ("order", "created_at.asc,id_factura.asc"), *filtro_fecha("created_at", desde, hasta), *extra]
+def facturas_rango(desde, hasta, columnas=COLS_FACTURA, vendedor=None, extra=(), solo_anuladas=False):
+    """Facturas del rango. Las ANULADAS quedan fuera (no son ventas): ni cierre, ni ventas, ni finanzas las cuentan.
+    `solo_anuladas=True` devuelve únicamente esas (se usa para descontar sus renglones en el reporte de productos)."""
+    estado = ("estado", "eq.anulada") if solo_anuladas else ("estado", "neq.anulada")
+    params = [("select", columnas), ("order", "created_at.asc,id_factura.asc"), *filtro_fecha("created_at", desde, hasta), estado, *extra]
     if vendedor:
         params.append(("vendedor", f"eq.{vendedor}"))
     return todo("facturas", params, MAX_FACTURAS, "facturas")
+
+
+# ── Devoluciones ────────────────────────────────────────────────────────────
+COLS_DEVOLUCION = "id,id_factura,total_reembolso_usd,total_reembolso_bs,created_at,facturas(vendedor,cedula,metodo_pago)"
+
+
+def devoluciones_rango(desde, hasta, vendedor=None):
+    """Devoluciones HECHAS en el rango (por la fecha en que se registraron, no la de la venta), como las comisiones.
+    Con `vendedor`: solo las de facturas de ese vendedor."""
+    filas = todo("devoluciones", [("select", COLS_DEVOLUCION), ("order", "id.asc"), *filtro_fecha("created_at", desde, hasta)],
+                 MAX_FILAS, "devoluciones")
+    if vendedor:
+        filas = [d for d in filas if (_fac_dev(d).get("vendedor") or "").strip() == vendedor]
+    return filas
+
+
+def _devoluciones_o_none(desde, hasta, vendedor=None):
+    """None si no se pudieron consultar: el reporte de ventas sigue valiendo y se avisa del faltante."""
+    try:
+        return devoluciones_rango(desde, hasta, vendedor)
+    except c.ErrorPeticion:
+        return None
+
+
+def _fac_dev(d):
+    f = d.get("facturas")
+    if isinstance(f, list):
+        f = f[0] if f else {}
+    return f if isinstance(f, dict) else {}
+
+
+def _dev_usd(d):
+    return _d(d.get("total_reembolso_usd"))
+
+
+def calc_devoluciones(devs):
+    """Las de facturas a crédito bajaron la deuda: no sacaron dinero de la caja (`credito_usd`)."""
+    return {"cantidad": len(devs), "usd": _f(sum((_dev_usd(d) for d in devs), Decimal(0))),
+            "bs": _f(sum((_d(d.get("total_reembolso_bs")) for d in devs), Decimal(0))),
+            "credito_usd": _f(sum((_dev_usd(d) for d in devs if _fac_dev(d).get("metodo_pago") == "CREDITO"), Decimal(0)))}
 
 
 # ── Pagos ───────────────────────────────────────────────────────────────────
@@ -221,6 +276,7 @@ def _por_metodo(facturas):
 def calc_cierre(facturas):
     n = len(facturas)
     lista = sum((_d(f.get("subtotal_usd")) for f in facturas), Decimal(0))
+    ventas = sum((_venta(f) for f in facturas), Decimal(0))
     metodos = _por_metodo(facturas)
     por_metodo = _ordenar_metodos([
         {"metodo": m, "etiqueta": ETIQUETAS[m], "moneda": mon, "facturas": len(a["ids"]), "monto": _f(a["monto"]), "lista_usd": _f(a["lista"])}
@@ -229,12 +285,13 @@ def calc_cierre(facturas):
     for (m, mon), a in metodos.items():
         cobrado[mon] += a["monto"]
 
-    vend = defaultdict(lambda: {"facturas": 0, "lista": Decimal(0), "usd": Decimal(0), "bs": Decimal(0)})
+    vend = defaultdict(lambda: {"facturas": 0, "lista": Decimal(0), "ventas": Decimal(0), "usd": Decimal(0), "bs": Decimal(0)})
     conciliacion = []
     for f in facturas:
         v = vend[(f.get("vendedor") or "").strip() or "Sin vendedor"]
         v["facturas"] += 1
         v["lista"] += _d(f.get("subtotal_usd"))
+        v["ventas"] += _venta(f)
         for p in pagos_de(f):
             v["usd" if p["moneda"] == "USD" else "bs"] += p["monto"]
             if p["metodo"] in CON_REFERENCIA:
@@ -242,17 +299,19 @@ def calc_cierre(facturas):
                                      "etiqueta": ETIQUETAS[p["metodo"]], "moneda": p["moneda"], "monto": _f(p["monto"]),
                                      "banco": p["banco"] if p["banco"] not in (None, "N/A") else None,
                                      "referencia": p["referencia"] if p["referencia"] not in (None, "N/A") else None})
-    por_vendedor = sorted(({"vendedor": k, "facturas": v["facturas"], "lista_usd": _f(v["lista"]), "cobrado_usd": _f(v["usd"]),
-                            "cobrado_bs": _f(v["bs"])} for k, v in vend.items()), key=lambda x: -x["lista_usd"])
+    por_vendedor = sorted(({"vendedor": k, "facturas": v["facturas"], "ventas_usd": _f(v["ventas"]),
+                            "lista_usd": _f(v["lista"]), "cobrado_usd": _f(v["usd"]),
+                            "cobrado_bs": _f(v["bs"])} for k, v in vend.items()), key=lambda x: -x["ventas_usd"])
     tasas = [_d(f.get("tasa_cambio")) for f in facturas if _d(f.get("tasa_cambio")) > 0]
     efectivo = lambda m: _f(sum((a["monto"] for (mm, _), a in metodos.items() if mm == m), Decimal(0)))  # noqa: E731
     credito = [f for f in facturas if f.get("metodo_pago") == "CREDITO"]
     return {
-        "resumen": {"facturas": n, "lista_usd": _f(lista), "ticket_promedio": _f(lista / n) if n else 0.0,
+        "resumen": {"facturas": n, "ventas_usd": _f(ventas), "lista_usd": _f(lista), "descuento_usd": _f(lista - ventas),
+                    "ticket_promedio": _f(ventas / n) if n else 0.0,
                     "cobrado_usd": _f(cobrado["USD"]), "cobrado_bs": _f(cobrado["BS"]),
                     "efectivo_usd": efectivo("ED"), "efectivo_bs": efectivo("EBS"),
                     "credito_facturas": len(credito),
-                    "credito_usd": _f(sum((_d(f.get("subtotal_usd")) for f in credito), Decimal(0))),
+                    "credito_usd": _f(sum((_venta(f) for f in credito), Decimal(0))),
                     "tasa_min": _f(min(tasas)) if tasas else None, "tasa_max": _f(max(tasas)) if tasas else None,
                     "primera": facturas[0].get("created_at") if facturas else None,
                     "ultima": facturas[-1].get("created_at") if facturas else None},
@@ -315,7 +374,7 @@ def calc_ventas(facturas, desde, hasta):
     total = Decimal(0)
     for f in facturas:
         t = hora_ve(f.get("created_at"))
-        lista = _d(f.get("subtotal_usd"))
+        lista = _venta(f)
         total += lista
         if t:
             for dest, clave in ((dias, t.date().isoformat()), (horas, t.hour), (semana, t.weekday())):
@@ -366,22 +425,30 @@ def calc_productos(detalles, orden="cantidad"):
 
 
 # ── Clientes ────────────────────────────────────────────────────────────────
-def calc_clientes(facturas):
+def calc_clientes(facturas, devs=()):
     acum = {}
     for f in facturas:
         clave = (f.get("cedula") or "").strip() or (f.get("telefono") or "").strip() or "—"
-        a = acum.setdefault(clave, {"cedula": (f.get("cedula") or "").strip(), "facturas": 0, "lista": Decimal(0), "ultima": ""})
+        a = acum.setdefault(clave, {"cedula": (f.get("cedula") or "").strip(), "facturas": 0, "lista": Decimal(0), "dev": Decimal(0), "ultima": ""})
         a["facturas"] += 1
-        a["lista"] += _d(f.get("subtotal_usd"))
+        a["lista"] += _venta(f)
         a["nombre"] = " ".join(x for x in (f.get("nombre"), f.get("apellido")) if x).strip() or "Sin nombre"
         a["telefono"] = f.get("telefono")
         a["ultima"] = max(a["ultima"], f.get("created_at") or "")
-    total = sum((a["lista"] for a in acum.values()), Decimal(0))
+    for d in devs:   # lo devuelto se descuenta al cliente (se une por cédula; sin cédula no se puede atribuir)
+        ced = (_fac_dev(d).get("cedula") or "").strip()
+        if ced in acum:
+            acum[ced]["dev"] += _dev_usd(d)
+    neto = lambda a: a["lista"] - a["dev"]  # noqa: E731
+    total = sum((neto(a) for a in acum.values()), Decimal(0))
     filas = sorted(({"cliente": a["nombre"], "cedula": a["cedula"] or None, "telefono": a["telefono"], "facturas": a["facturas"],
-                     "compras_usd": _f(a["lista"]), "ticket_promedio": _f(a["lista"] / a["facturas"]), "ultima": a["ultima"],
-                     "participacion": _pct(a["lista"], total)} for a in acum.values()), key=lambda x: (-x["compras_usd"], -x["facturas"]))
+                     "compras_usd": _f(a["lista"]), "devoluciones_usd": _f(a["dev"]), "neto_usd": _f(neto(a)),
+                     "ticket_promedio": _f(a["lista"] / a["facturas"]), "ultima": a["ultima"],
+                     "participacion": _pct(neto(a), total)} for a in acum.values()), key=lambda x: (-x["neto_usd"], -x["facturas"]))
     return {"resumen": {"clientes": len(filas), "facturas": len(facturas), "recurrentes": sum(1 for x in filas if x["facturas"] >= 2),
-                        "compras_usd": _f(total), "mostrados": min(len(filas), TOP)},
+                        "compras_usd": _f(sum((a["lista"] for a in acum.values()), Decimal(0))),
+                        "devoluciones_usd": _f(sum((a["dev"] for a in acum.values()), Decimal(0))), "neto_usd": _f(total),
+                        "mostrados": min(len(filas), TOP)},
             "filas": filas[:TOP]}
 
 
@@ -395,36 +462,47 @@ def _periodo(t, agrupar):
     return d.isoformat()
 
 
-def calc_finanzas(facturas, agrupar, previo):
-    """previo = (nº de facturas, ventas a precio de lista) del período anterior de igual duración."""
+def calc_finanzas(facturas, agrupar, previo, devs=()):
+    """previo = (nº de facturas, ventas) del período anterior de igual duración. `devs` = devoluciones del período."""
     buckets = {}
     total, bs_total = Decimal(0), Decimal(0)
     for f in facturas:
         t = hora_ve(f.get("created_at"))
         if not t:
             continue
-        b = buckets.setdefault(_periodo(t, agrupar), {"facturas": 0, "lista": Decimal(0), "bs": Decimal(0)})
-        lista = _d(f.get("subtotal_usd"))
+        b = buckets.setdefault(_periodo(t, agrupar), {"facturas": 0, "lista": Decimal(0), "bs": Decimal(0), "dev": Decimal(0)})
+        lista = _venta(f)
         b["facturas"] += 1
         b["lista"] += lista
         b["bs"] += _d(f.get("total_bs"))
         total += lista
         bs_total += _d(f.get("total_bs"))
+    dev_total = Decimal(0)
+    for d in devs:
+        t = hora_ve(d.get("created_at"))
+        if not t:
+            continue
+        b = buckets.setdefault(_periodo(t, agrupar), {"facturas": 0, "lista": Decimal(0), "bs": Decimal(0), "dev": Decimal(0)})
+        b["dev"] += _dev_usd(d)
+        dev_total += _dev_usd(d)
     metodos = _por_metodo(facturas)
     cobrado = {"USD": Decimal(0), "BS": Decimal(0)}
     for (m, mon), a in metodos.items():
         cobrado[mon] += a["monto"]
+    base_metodos = sum((a["lista"] for a in metodos.values()), Decimal(0))   # los métodos se miden a precio de lista
     por_metodo = _ordenar_metodos([
         {"metodo": m, "etiqueta": ETIQUETAS[m], "moneda": mon, "facturas": len(a["ids"]), "monto": _f(a["monto"]),
-         "lista_usd": _f(a["lista"]), "participacion": _pct(a["lista"], total)} for (m, mon), a in metodos.items()])
+         "lista_usd": _f(a["lista"]), "participacion": _pct(a["lista"], base_metodos)} for (m, mon), a in metodos.items()])
     n_prev, lista_prev = previo
     variacion = _f((total - lista_prev) * 100 / lista_prev) if lista_prev else None
     return {
         "resumen": {"facturas": len(facturas), "ventas_usd": _f(total), "ventas_bs": _f(bs_total),
                     "ticket_promedio": _f(total / len(facturas)) if facturas else 0.0,
                     "cobrado_usd": _f(cobrado["USD"]), "cobrado_bs": _f(cobrado["BS"]),
+                    "devoluciones_usd": _f(dev_total), "devoluciones_cantidad": len(devs), "neto_usd": _f(total - dev_total),
                     "previo_facturas": n_prev, "previo_ventas_usd": _f(lista_prev), "variacion_pct": variacion},
-        "por_periodo": [{"periodo": k, "facturas": v["facturas"], "ventas_usd": _f(v["lista"]), "ventas_bs": _f(v["bs"])}
+        "por_periodo": [{"periodo": k, "facturas": v["facturas"], "ventas_usd": _f(v["lista"]), "ventas_bs": _f(v["bs"]),
+                         "devoluciones_usd": _f(v["dev"]), "neto_usd": _f(v["lista"] - v["dev"])}
                         for k, v in sorted(buckets.items())],
         "por_metodo": por_metodo,
     }
@@ -550,13 +628,19 @@ def r_cierre(qs, u):
             cierre["abonos"] = calc_abonos(abonos_rango(desde, hasta))
         except c.ErrorPeticion:
             cierre["abonos"] = {"no_disponible": True}   # el cierre de ventas sigue valiendo; se avisa del faltante
+    devs = _devoluciones_o_none(desde, hasta, _vendedor(qs))
+    if devs is None:
+        cierre["devoluciones"] = {"no_disponible": True}
+    else:
+        cierre["devoluciones"] = calc_devoluciones(devs)
+        cierre["resumen"]["neto_usd"] = _f(_d(cierre["resumen"]["ventas_usd"]) - _d(cierre["devoluciones"]["usd"]))
     return cierre, desde, hasta
 
 
 def r_facturas(qs, u):
     desde, hasta = rango(qs)
     params = [("select", COLS_LISTADO), ("order", "created_at.desc,id_factura.desc"), ("limit", str(LIMITE_FACTURAS + 1)),
-              *filtro_fecha("created_at", desde, hasta)]
+              *filtro_fecha("created_at", desde, hasta), ("estado", "neq.anulada")]
     if _vendedor(qs):
         params.append(("vendedor", f"eq.{_vendedor(qs)}"))
     metodo = _g(qs, "metodo")
@@ -592,7 +676,8 @@ def r_detalle(qs, u):
                     "metodo": f.get("metodo_pago"), "etiqueta": ETIQUETAS.get(f.get("metodo_pago"), f.get("metodo_pago")),
                     "subtotal_usd": _f(f.get("subtotal_usd")), "total_usd": _f(f.get("total_usd")), "total_bs": _f(f.get("total_bs")),
                     "tasa_cambio": _f(f.get("tasa_cambio")) if f.get("tasa_cambio") is not None else None,
-                    "observaciones": f.get("observaciones"), "tiene_comprobante": bool(f.get("comprobante_path"))},
+                    "observaciones": f.get("observaciones"), "tiene_comprobante": bool(f.get("comprobante_path")),
+                    "estado": f.get("estado"), "anulada": f.get("estado") == "anulada"},
         "items": [{"producto": x.get("nombre_producto"), "cantidad": _f(x.get("cantidad")), "precio_unitario": _f(x.get("precio_unitario")),
                    "precio_total": _f(x.get("precio_total"))} for x in items],
         "pagos": [{"metodo": p["metodo"], "etiqueta": ETIQUETAS[p["metodo"]], "moneda": p["moneda"], "monto": _f(p["monto"]),
@@ -601,9 +686,33 @@ def r_detalle(qs, u):
     }, None, None
 
 
+def aplicar_devoluciones_ventas(datos, devs):
+    """Agrega al reporte de ventas lo devuelto en el período y la venta neta (resumen y por vendedor)."""
+    dv = calc_devoluciones(devs)
+    r = datos["resumen"]
+    r.update({"devoluciones_usd": dv["usd"], "devoluciones_cantidad": dv["cantidad"], "devoluciones_credito_usd": dv["credito_usd"],
+              "neto_usd": _f(_d(r["ventas_usd"]) - _d(dv["usd"]))})
+    por_vend = defaultdict(lambda: Decimal(0))
+    for d in devs:
+        por_vend[(_fac_dev(d).get("vendedor") or "").strip() or "Sin vendedor"] += _dev_usd(d)
+    filas = {x["vendedor"]: x for x in datos["por_vendedor"]}
+    for nombre in por_vend:   # un vendedor puede tener devoluciones sin ventas en el rango
+        filas.setdefault(nombre, {"vendedor": nombre, "facturas": 0, "ventas_usd": 0.0, "ticket_promedio": 0.0, "participacion": 0.0})
+    for nombre, x in filas.items():
+        x["devoluciones_usd"] = _f(por_vend.get(nombre, Decimal(0)))
+        x["neto_usd"] = _f(_d(x["ventas_usd"]) - por_vend.get(nombre, Decimal(0)))
+    datos["por_vendedor"] = sorted(filas.values(), key=lambda x: (-x["ventas_usd"], -x["devoluciones_usd"]))
+
+
 def r_ventas(qs, u):
     desde, hasta = rango(qs)
-    return calc_ventas(facturas_rango(desde, hasta, vendedor=_vendedor(qs)), desde, hasta), desde, hasta
+    datos = calc_ventas(facturas_rango(desde, hasta, vendedor=_vendedor(qs)), desde, hasta)
+    devs = _devoluciones_o_none(desde, hasta, _vendedor(qs))
+    if devs is None:
+        datos["resumen"]["devoluciones_no_disponible"] = True
+    else:
+        aplicar_devoluciones_ventas(datos, devs)
+    return datos, desde, hasta
 
 
 def r_productos(qs, u):
@@ -611,12 +720,16 @@ def r_productos(qs, u):
     orden = "monto" if _g(qs, "orden") == "monto" else "cantidad"
     detalles = todo("factura_detalles", [("select", "id_factura,inventario_id,nombre_producto,cantidad,precio_total"), ("order", "id.asc"),
                                          *filtro_fecha("created_at", desde, hasta)], MAX_FILAS, "productos vendidos")
+    # factura_detalles no trae el estado: se restan los renglones de las facturas anuladas del mismo rango
+    anuladas = {f.get("id_factura") for f in facturas_rango(desde, hasta, "id_factura", solo_anuladas=True)}
+    if anuladas:
+        detalles = [d for d in detalles if d.get("id_factura") not in anuladas]
     return calc_productos(detalles, orden), desde, hasta
 
 
 def r_clientes(qs, u):
     desde, hasta = rango(qs)
-    return calc_clientes(facturas_rango(desde, hasta, COLS_CLIENTE)), desde, hasta
+    return calc_clientes(facturas_rango(desde, hasta, COLS_CLIENTE), _devoluciones_o_none(desde, hasta) or ()), desde, hasta
 
 
 def r_finanzas(qs, u):
@@ -625,9 +738,12 @@ def r_finanzas(qs, u):
     dias = (hasta - desde).days + 1
     p_hasta = desde - timedelta(days=1)
     p_desde = p_hasta - timedelta(days=dias - 1)
-    previas = facturas_rango(p_desde, p_hasta, "id_factura,subtotal_usd")
-    previo = (len(previas), sum((_d(f.get("subtotal_usd")) for f in previas), Decimal(0)))
-    datos = calc_finanzas(facturas_rango(desde, hasta), agrupar, previo)
+    previas = facturas_rango(p_desde, p_hasta, "id_factura,total_usd,subtotal_usd")
+    previo = (len(previas), sum((_venta(f) for f in previas), Decimal(0)))
+    devs = _devoluciones_o_none(desde, hasta)
+    datos = calc_finanzas(facturas_rango(desde, hasta), agrupar, previo, devs or ())
+    if devs is None:
+        datos["resumen"]["devoluciones_no_disponible"] = True
     datos["agrupar"] = agrupar
     datos["periodo_previo"] = {"desde": p_desde.isoformat(), "hasta": p_hasta.isoformat()}
     return datos, desde, hasta
