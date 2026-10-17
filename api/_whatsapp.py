@@ -13,7 +13,7 @@ import sys
 import requests
 
 import _comun as c
-from _factura_pdf import DOC_ARCHIVO, DOC_NOMBRE
+from _factura_pdf import DOC_ARCHIVO, DOC_NOMBRE, generar_pdf
 
 BOT_URL = os.environ.get("WHATSAPP_BOT_URL", "").rstrip("/")
 BOT_KEY = os.environ.get("WHATSAPP_BOT_KEY", "")
@@ -56,6 +56,40 @@ def descargar_pdf(id_factura, timeout=None):
     if r.status_code == 200 and r.content.startswith(b"%PDF"):
         return r.content
     return None
+
+
+COLS_FACTURA_PDF = ("id_factura,nombre,apellido,cedula,telefono,vendedor,subtotal_usd,total_usd,subtotal_bs,total_bs,"
+                    "tasa_cambio,metodo_pago,referencia,banco,observaciones,pagos_combinados,created_at,"
+                    "factura_detalles(id,nombre_producto,cantidad,precio_unitario,precio_total)")
+
+
+def factura_desde_bd(id_factura, timeout=None):
+    """(factura, detalles) tal como están GUARDADOS en la base de datos, o None si la factura no existe.
+    Es la única fuente válida para regenerar un PDF: lo que llega en una petición repetida puede diferir de lo guardado."""
+    r = c._http.get(
+        f"{c.SUPABASE_URL}/rest/v1/facturas",
+        params={"select": COLS_FACTURA_PDF, "id_factura": f"eq.{id_factura}", "limit": "1"},
+        headers=c._hdr_servicio(), timeout=timeout or c.TIMEOUT,
+    )
+    if r.status_code != 200:
+        print(f"[facturas] lectura para PDF {r.status_code}: {r.text[:200]}", file=sys.stderr)
+        raise RuntimeError("consulta de factura fallida")
+    filas = r.json()
+    if not filas:
+        return None
+    factura = filas[0]
+    detalles = sorted(factura.pop("factura_detalles", None) or [], key=lambda d: d["id"])
+    return factura, detalles
+
+
+def regenerar_pdf(id_factura, timeout=None):
+    """Genera el PDF de una factura YA guardada a partir de la base de datos (con la fecha original) y lo archiva.
+    Devuelve (bytes, guardado: bool), o None si la factura no existe. Mejor esfuerzo al archivar: nunca lanza por eso."""
+    datos = factura_desde_bd(id_factura, timeout)
+    if datos is None:
+        return None
+    pdf = generar_pdf(*datos)
+    return pdf, subir_pdf(id_factura, pdf, timeout=timeout)
 
 
 # ── Envío por WhatsApp ──────────────────────────────────────────────────────

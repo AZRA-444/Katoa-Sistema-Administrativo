@@ -7,8 +7,7 @@ const ENDPOINTS = {
     factura: '/api/enviar-factura',
     facturaPdf: '/api/factura-pdf', // GET ?id= → PDF carta · POST {id_factura, telefono} → reenvía por WhatsApp
     sesion: '/api/sesion',
-    tasa: 'https://open.er-api.com/v6/latest/USD',
-    tasaUsdt: '/api/tasa-usdt', // el servidor consulta el dólar paralelo (así el CSP no bloquea)
+    tasas: '/api/tasas', // GET ?tipo=bcv|usdt → el servidor consulta la tasa OFICIAL del BCV / el dólar paralelo
 };
 
 const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
@@ -42,26 +41,47 @@ async function request(url, opciones = {}, reintentar = true) {
 
 const leerJson = async (r) => ((r.headers.get('content-type') || '').includes('application/json') ? r.json() : null);
 
-//--- TASA DEL DÍA ---//
-export async function obtenerTasa() {
+//--- API JSON COMPARTIDA ---//
+const SIN_CONEXION = 'Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.';
+
+/**
+ * Llamada al servidor con el sobre estándar {status:'ok'|'error', message, ...}. ÚNICA implementación: antes estaba
+ * copiada en administrador, autorizacion, factura-modal, inventario y notificaciones.
+ *   apiJson(url)          → GET
+ *   apiJson(url, cuerpo)  → POST con `cuerpo` como JSON
+ * Renueva la sesión una vez si venció, manda a cambiar la clave si está pendiente y lanza Error con el mensaje
+ * que se muestra al usuario. Devuelve el JSON completo (`d.data`, `d.truncado`, etc.).
+ */
+export async function apiJson(url, cuerpo) {
+    let r;
     try {
-        const d = await (await fetch(ENDPOINTS.tasa)).json();
-        return Number(d?.rates?.VES) || 0;
-    } catch {
-        return 0; // sin conexión: se mantiene la tasa guardada o la manual
+        r = await request(url, cuerpo ? { method: 'POST', body: JSON.stringify(cuerpo) } : {});
+    } catch (e) {
+        if (e instanceof TypeError) throw new Error(SIN_CONEXION); // fetch falla con TypeError cuando no hay red
+        throw e;
     }
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || d?.error || 'No se pudo completar la operación.');
+    return d;
 }
 
-/** GET /api/tasa-usdt → {status:'ok', tasa}. Devuelve 0 si falla: el vendedor la escribe a mano. */
-export async function obtenerTasaUsdt() {
+//--- TASA DEL DÍA ---//
+/** GET /api/tasas?tipo= → tasa (Bs) o 0 si no hay: el vendedor la escribe a mano. */
+async function obtenerTasaDe(tipo) {
     try {
-        const r = await request(ENDPOINTS.tasaUsdt, { signal: AbortSignal.timeout(8000) });
+        const r = await request(`${ENDPOINTS.tasas}?tipo=${tipo}`, { signal: AbortSignal.timeout(8000) });
         const d = r.ok ? await leerJson(r) : null;
         return d?.status === 'ok' ? Number(d.tasa) || 0 : 0;
     } catch {
         return 0;
     }
 }
+
+/** Tasa OFICIAL del BCV (Bs por USD). Antes salía de open.er-api.com, un agregador de mercado que no es la tasa oficial. */
+export const obtenerTasa = () => obtenerTasaDe('bcv');
+
+/** Dólar paralelo / USDT (Bs por USDT). */
+export const obtenerTasaUsdt = () => obtenerTasaDe('usdt');
 
 //--- INVENTARIO ---//
 /** GET /api/inventario?q= → [{id,nombre,marca,color,talla,cantidad,precio_detal,precio_mayor,precio_gran_mayor,cantidad_mayor,cantidad_gran_mayor}] */

@@ -3,8 +3,9 @@
 Valida credenciales contra Supabase Auth y, si son correctas, entrega la sesión
 en cookies HttpOnly (el JavaScript del navegador nunca ve los tokens).
 
-Protecciones: límite de intentos por correo e IP, mensajes genéricos,
-verificación de cuenta activa y registro de cada intento.
+Protecciones: límite de intentos por pareja correo+IP (y por IP, y un tope por correo que respeta las IP
+conocidas), mensajes genéricos, verificación de cuenta activa y registro de cada intento ANTES de probar la
+contraseña (si no se puede registrar, se rechaza: falla cerrado).
 """
 import os
 import sys
@@ -48,35 +49,36 @@ class handler(BaseHTTPRequestHandler):
 
         ip = c.ip_cliente(self)
 
-        # 1) Límite de intentos (si no se puede comprobar, se falla cerrado)
+        # 1) Límite de intentos (si no se puede comprobar o registrar, se falla cerrado: nunca se prueba la clave)
         try:
-            bloqueado = (
-                c.contar_fallos("email", email) >= c.MAX_FALLOS_EMAIL
-                or c.contar_fallos("ip", ip) >= c.MAX_FALLOS_IP
-            )
-        except requests.RequestException:
+            if c.login_bloqueado(email, ip):
+                return c.responder(
+                    self,
+                    429,
+                    {"error": MSG_BLOQUEO, "reintentar_en_segundos": c.VENTANA_MIN * 60},
+                    extra={"Retry-After": str(c.VENTANA_MIN * 60)},
+                )
+            # El intento queda registrado ANTES de probar la contraseña (como fallo); si es correcta se marca éxito.
+            intento = c.reservar_intento(email, ip)
+        except requests.RequestException as e:
+            print(f"[login] límite de intentos no disponible: {e}", file=sys.stderr)
             return c.responder(self, 503, {"error": MSG_NO_DISPONIBLE})
-        if bloqueado:
-            return c.responder(
-                self,
-                429,
-                {"error": MSG_BLOQUEO, "reintentar_en_segundos": c.VENTANA_MIN * 60},
-                extra={"Retry-After": str(c.VENTANA_MIN * 60)},
-            )
 
         # 2) Autenticación contra Supabase
         try:
             r = c.auth_password(email, password)
         except requests.RequestException:
+            c.intento_liberar(intento)      # no fue culpa del usuario
             return c.responder(self, 503, {"error": MSG_NO_DISPONIBLE})
 
         if r.status_code in (400, 401, 422):
-            c.registrar_intento(email, ip, False, "credenciales")
-            return c.responder(self, 401, {"error": MSG_CREDENCIALES})
+            return c.responder(self, 401, {"error": MSG_CREDENCIALES})    # el intento ya cuenta como fallo
         if r.status_code == 429:
+            c.intento_liberar(intento)
             return c.responder(self, 429, {"error": MSG_BLOQUEO})
         if r.status_code != 200:
             print(f"[login] Supabase respondió {r.status_code}", file=sys.stderr)
+            c.intento_liberar(intento)
             return c.responder(self, 503, {"error": MSG_NO_DISPONIBLE})
 
         sesion = r.json()
@@ -86,15 +88,17 @@ class handler(BaseHTTPRequestHandler):
             perfil = c.obtener_perfil(sesion["user"]["id"])
         except requests.RequestException:
             c.auth_logout(sesion["access_token"])
+            c.intento_liberar(intento)
             return c.responder(self, 503, {"error": MSG_NO_DISPONIBLE})
 
         if perfil is None or not perfil.get("activo"):
-            c.registrar_intento(email, ip, False, "cuenta_inactiva" if perfil else "sin_perfil")
+            c.intento_motivo(intento, "cuenta_inactiva" if perfil else "sin_perfil")
             c.auth_logout(sesion["access_token"])
             return c.responder(self, 403, {"error": MSG_CUENTA})
 
-        # 4) Éxito: sesión en cookies HttpOnly
-        c.registrar_intento(email, ip, True)
+        # 4) Éxito: el intento pasa a exitoso y la sesión va en cookies HttpOnly
+        c.intento_exitoso(intento)
+        c.purgar_intentos()                 # de vez en cuando: login_intentos no debe crecer sin límite
         return c.responder(
             self,
             200,

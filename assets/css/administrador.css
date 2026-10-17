@@ -47,3 +47,9 @@
 
 .sub { display: block; font-size: .82rem; color: var(--muted); }
 .pill { display: inline-block; padding: 2px 10px; font: 600 .78rem var(--font-body); color: var(--terracota-800); background: var(--crema); border-radius: 99px; }
+
+/* Gestión de usuarios: acciones por fila */
+.acciones { white-space: nowrap; }
+.acciones .btn-sm { padding: 4px 10px; font-size: .8rem; margin-right: 4px; }
+tr.inactivo td { color: var(--muted); }
+tr.inactivo td:first-child { text-decoration: line-through; }

@@ -7,7 +7,7 @@ Mientras ese indicador esté activo, el resto de la API responde 403 (ver c.usua
 
 Seguridad:
   - Pide la contraseña ACTUAL y la comprueba contra Supabase Auth (una sesión robada no basta).
-  - Los intentos fallidos cuentan en el mismo límite que el login (por correo e IP).
+  - Los intentos fallidos cuentan en el mismo límite que el login (por correo+IP, ver c.login_bloqueado).
   - Política de la nueva clave: 10 a 72 caracteres (72 bytes es el máximo de Supabase), con letras y
     números, distinta de la actual y sin contener la parte local del correo.
   - Al terminar revoca las DEMÁS sesiones del usuario (la actual sigue abierta).
@@ -57,18 +57,25 @@ def _error(h, status, mensaje):
 
 
 def _verificar_actual(email, ip, actual):
-    """Comprueba la contraseña actual con el mismo límite de intentos que el login."""
-    if c.contar_fallos("email", email) >= c.MAX_FALLOS_EMAIL or c.contar_fallos("ip", ip) >= c.MAX_FALLOS_IP:
+    """Comprueba la contraseña actual con el mismo límite de intentos que el login (se registra antes de probar)."""
+    if c.login_bloqueado(email, ip):
         raise c.ErrorPeticion(429, MSG_BLOQUEO)
-    r = c.auth_password(email, actual)
+    intento = c.reservar_intento(email, ip, "cambio_clave")
+    try:
+        r = c.auth_password(email, actual)
+    except requests.RequestException:
+        c.intento_liberar(intento)
+        raise
     if r.status_code in (400, 401, 422):
-        c.registrar_intento(email, ip, False, "cambio_clave")
-        raise c.ErrorPeticion(403, MSG_ACTUAL)
+        raise c.ErrorPeticion(403, MSG_ACTUAL)      # el intento ya cuenta como fallo
     if r.status_code == 429:
+        c.intento_liberar(intento)
         raise c.ErrorPeticion(429, MSG_BLOQUEO)
     if r.status_code != 200:
         print(f"[cambiar-clave] Supabase respondió {r.status_code} al verificar", file=sys.stderr)
+        c.intento_liberar(intento)
         raise c.ErrorPeticion(503, MSG_NO_DISPONIBLE)
+    c.intento_liberar(intento)      # verificar la clave actual con éxito no es un inicio de sesión: no se registra
     # La comprobación abrió una sesión extra en Supabase: se revoca para no dejarla viva.
     try:
         c.auth_logout(r.json().get("access_token"))
@@ -130,6 +137,7 @@ class handler(BaseHTTPRequestHandler):
             if not apagado:
                 return _error(self, 503, MSG_PARCIAL)
 
+            c.invalidar_sesion(access=access)   # el caché de esta instancia ya no debe recordar «clave pendiente»
             c.auth_logout(access, scope="others")  # cierra las demás sesiones (mejor esfuerzo)
         except c.ErrorPeticion as e:
             return _error(self, e.status, e.mensaje)

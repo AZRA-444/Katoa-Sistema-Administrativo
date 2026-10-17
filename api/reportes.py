@@ -17,7 +17,8 @@ GET ?tipo=...  (encargado, admin, sysadmin). Los costos del inventario solo los 
 Fechas AAAA-MM-DD en hora de Venezuela (UTC-4); «hasta» es inclusivo. Sin fechas: el día de hoy.
 Los totales de dinero nunca son parciales: si el rango trae demasiados registros se pide acotarlo.
 Las facturas ANULADAS no se cuentan en ningún reporte (cierre, ventas, productos, clientes, finanzas, listado).
-«Ventas» = total_usd (lo cobrado, ya con el descuento por pago en divisas), igual que el panel Administrador.
+«Ventas» = total_usd (lo cobrado, ya con el descuento por pago en divisas), igual que el panel Administrador:
+la definición vive en api/_ventas.py. El único reporte a precio de lista es «productos» y así se rotula.
 Las DEVOLUCIONES se restan por la fecha en que se registraron: cierre, ventas, clientes y finanzas traen lo devuelto y la venta
 neta. Productos NO las descuenta (muestra lo vendido a precio de lista).
 """
@@ -26,7 +27,7 @@ import re
 import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -34,6 +35,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _ventas as ventas_def  # noqa: E402
 
 VE = timezone(timedelta(hours=-4))          # Venezuela no cambia de hora en el año
 PAGINA = 1000
@@ -64,22 +66,9 @@ COLS_LISTADO = ("id_factura,nombre,apellido,cedula,telefono,vendedor,subtotal_us
 
 
 # ── Números y fechas ────────────────────────────────────────────────────────
-def _venta(f):
-    """Venta de una factura = lo que se cobra (o queda por cobrar) YA con el descuento por pago en divisas: `total_usd`.
-    Es la misma cifra que usan el panel Administrador y las comisiones. El precio de lista (`subtotal_usd`) solo se
-    usa para el «equivalente a precio de lista» de cada método de pago."""
-    v = f.get("total_usd")
-    return _d(v) if v is not None else _d(f.get("subtotal_usd"))
-
-
-def _d(v):
-    """Decimal seguro: None, vacío o basura cuentan como 0 (un dato raro no debe tumbar el reporte)."""
-    if v is None or isinstance(v, bool):
-        return Decimal(0)
-    try:
-        return Decimal(str(v))
-    except InvalidOperation:
-        return Decimal(0)
+# La definición de «venta» vive en api/_ventas.py y es la misma del panel Administrador y las comisiones.
+_venta = ventas_def.venta_usd
+_d = ventas_def.dec
 
 
 def _f(x):
@@ -178,7 +167,7 @@ def todo(tabla, params, tope, que):
 def facturas_rango(desde, hasta, columnas=COLS_FACTURA, vendedor=None, extra=(), solo_anuladas=False):
     """Facturas del rango. Las ANULADAS quedan fuera (no son ventas): ni cierre, ni ventas, ni finanzas las cuentan.
     `solo_anuladas=True` devuelve únicamente esas (se usa para descontar sus renglones en el reporte de productos)."""
-    estado = ("estado", "eq.anulada") if solo_anuladas else ("estado", "neq.anulada")
+    estado = ("estado", f"eq.{ventas_def.ESTADO_ANULADA}") if solo_anuladas else ventas_def.FILTRO_VENTA
     params = [("select", columnas), ("order", "created_at.asc,id_factura.asc"), *filtro_fecha("created_at", desde, hasta), estado, *extra]
     if vendedor:
         params.append(("vendedor", f"eq.{vendedor}"))

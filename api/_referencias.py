@@ -2,14 +2,18 @@
 
   · catalogo(ids)      → precios de lista del inventario (inv_catalogo) de las variantes activas.
   · precio_de_lista()  → mismas reglas de escala (detal / mayor / gran mayor) que js/facturacion.js.
-  · tasa_bcv()         → tasa de referencia (la misma fuente que usa el navegador: open.er-api.com).
-  · tasa_usdt()        → dólar paralelo (la misma fuente que /api/tasa-usdt).
+  · tasa_bcv()         → tasa OFICIAL del BCV (ve.dolarapi.com/v1/dolares/oficial). Antes se usaba open.er-api.com,
+                         que es un agregador de mercado y no la tasa oficial.
+  · tasa_usdt()        → dólar paralelo (ve.dolarapi.com/v1/dolares/paralelo).
+  · tasa_info(tipo)    → {tasa, fuente, actualizado} de cualquiera de las dos (lo sirve /api/tasas al navegador).
 
 El prefijo "_" hace que Vercel NO lo exponga como endpoint.
 
 Variables de entorno opcionales (Vercel):
   TASA_TOLERANCIA_PCT     Desvío máximo (%) permitido entre la tasa enviada y la de referencia. Def.: 10.
-                          Con 0 se desactiva la comprobación (p. ej. si la fuente no refleja tu tasa oficial).
+                          Con 0 se desactiva la comprobación.
+  TASA_REF_MAX_DIAS       Antigüedad máxima (días) de la tasa de referencia para usarla al validar. Def.: 7.
+                          Si la fuente lleva más tiempo sin actualizarse no se puede juzgar: se acepta la enviada.
   DESCUENTO_MAX_PCT       Descuento máximo (%) sobre el precio de lista que pueden dar "personal" y
                           "encargado". Def.: 0 (deben respetar la lista; solo admin/sysadmin cambian precios).
   PERMITIR_SIN_INVENTARIO Si es "false", "personal" y "encargado" solo pueden facturar productos del
@@ -20,13 +24,14 @@ Variables de entorno opcionales (Vercel):
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 import requests
 
 import _comun as c
 
-URL_TASA_BCV = "https://open.er-api.com/v6/latest/USD"
+URL_TASA_BCV = "https://ve.dolarapi.com/v1/dolares/oficial"   # tasa oficial del BCV
 URL_TASA_USDT = "https://ve.dolarapi.com/v1/dolares/paralelo"
 TIMEOUT_REF = 3          # s: corto a propósito; la comprobación de tasas no debe frenar la venta
 TTL_FRESCO = 300         # s: una respuesta se reutiliza 5 min en una instancia "caliente"
@@ -109,16 +114,18 @@ def _tasa_valida(v):
     return Decimal(str(v))
 
 
-def _extraer_bcv(d):
-    return _tasa_valida((d.get("rates") or {}).get("VES")) if isinstance(d, dict) else None
+def _extraer(d):
+    """{tasa, fuente, actualizado} de una respuesta de dolarapi (mismo formato para oficial y paralelo)."""
+    if not isinstance(d, dict):
+        return None
+    tasa = _tasa_valida(d.get("promedio") or d.get("venta"))
+    if tasa is None:
+        return None
+    return {"tasa": tasa, "fuente": d.get("fuente"), "actualizado": d.get("fechaActualizacion")}
 
 
-def _extraer_usdt(d):
-    return _tasa_valida(d.get("promedio") or d.get("venta")) if isinstance(d, dict) else None
-
-
-def _consultar(clave, url, extraer):
-    """Valor de referencia con caché. None si no se pudo obtener ni hay un valor reciente guardado."""
+def _consultar(clave, url):
+    """Dato de referencia con caché. None si no se pudo obtener ni hay un valor reciente guardado."""
     ahora = time.monotonic()
     previo = _cache.get(clave)
     if previo and ahora - previo[0] < TTL_FRESCO:
@@ -128,7 +135,7 @@ def _consultar(clave, url, extraer):
         # requests.get directo: no se envían las cabeceras de Supabase a un tercero.
         r = requests.get(url, timeout=TIMEOUT_REF, headers={"Accept": "application/json"})
         if r.status_code == 200:
-            valor = extraer(r.json())
+            valor = _extraer(r.json())
     except (requests.RequestException, ValueError) as e:
         print(f"[referencias] {clave} no disponible: {e!r}", file=sys.stderr)
     if valor is not None:
@@ -139,9 +146,36 @@ def _consultar(clave, url, extraer):
     return None
 
 
+URLS = {"bcv": URL_TASA_BCV, "usdt": URL_TASA_USDT}
+
+
+def tasa_info(tipo):
+    """{tasa: Decimal, fuente, actualizado} de 'bcv' o 'usdt'; None si no hay dato."""
+    if tipo not in URLS:
+        raise ValueError(tipo)
+    return _consultar(tipo, URLS[tipo])
+
+
+def _vigente(info, tipo):
+    """La tasa de la referencia solo sirve para juzgar si no está vieja (feriados y fines de semana sí caben)."""
+    if info is None:
+        return None
+    max_dias = int(env_decimal("TASA_REF_MAX_DIAS", 7))
+    if max_dias > 0 and info.get("actualizado"):
+        try:
+            if datetime.now(timezone.utc) - c.parse_iso(info["actualizado"]) > timedelta(days=max_dias):
+                print(f"[referencias] la tasa {tipo} de referencia tiene más de {max_dias} días: no se usa para validar",
+                      file=sys.stderr)
+                return None
+        except ValueError:
+            pass     # fecha ilegible: se confía en el valor
+    return info["tasa"]
+
+
 def tasa_bcv():
-    return _consultar("bcv", URL_TASA_BCV, _extraer_bcv)
+    """Tasa oficial del BCV como Decimal, o None si no hay dato o está vencido."""
+    return _vigente(tasa_info("bcv"), "BCV")
 
 
 def tasa_usdt():
-    return _consultar("usdt", URL_TASA_USDT, _extraer_usdt)
+    return _vigente(tasa_info("usdt"), "USDT")

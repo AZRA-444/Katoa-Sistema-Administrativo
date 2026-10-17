@@ -4,7 +4,8 @@ GET  ?id=FAC-...                       → devuelve el PDF (tamaño carta) para 
 POST {id_factura, telefono}            → reenvía ese PDF por WhatsApp (botón «Reintentar»).
 
 Exige sesión activa (cookie HttpOnly). El PDF se genera al guardar la factura
-(api/enviar-factura.py) y vive en el bucket privado `facturas` de Supabase Storage.
+(api/enviar-factura.py) y vive en el bucket privado `facturas` de Supabase Storage. Si falta, se regenera
+desde la base de datos (con la fecha original de la factura).
 
 Permisos (antes cualquier usuario podía ver cualquier factura y enviarla a cualquier número):
   · «personal» solo puede ver/reenviar facturas que emitió él mismo.
@@ -85,6 +86,9 @@ class handler(BaseHTTPRequestHandler):
                 return _error(self, 400, "Id de factura inválido.")
             _autorizar(self.usuario, id_factura)
             pdf = wa.descargar_pdf(id_factura)
+            if pdf is None:     # el PDF se perdió (falló al guardarse): se regenera desde la base de datos
+                regenerado = wa.regenerar_pdf(id_factura)
+                pdf = regenerado[0] if regenerado else None
         except c.ErrorPeticion as e:
             return _error(self, e.status, e.mensaje)
         except (requests.RequestException, RuntimeError):
@@ -115,6 +119,9 @@ class handler(BaseHTTPRequestHandler):
             if _digitos(telefono) != _digitos(f.get("telefono")) and c.NIVELES.get(self.usuario["rol"], 0) < c.NIVELES["encargado"]:
                 return _error(self, 403, "Solo un encargado puede enviar la factura a un número distinto al del cliente.")
             pdf = wa.descargar_pdf(id_factura)
+            if pdf is None:
+                regenerado = wa.regenerar_pdf(id_factura)
+                pdf = regenerado[0] if regenerado else None
             if pdf is None:
                 return _error(self, 404, "No se encontró el PDF de esta factura.")
             estado = wa.enviar_pdf(telefono, id_factura, pdf)

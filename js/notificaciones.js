@@ -1,3 +1,4 @@
+import { apiJson as api } from './utils/api.js';
 const API = '/api/notificaciones';
 const TZ = 'America/Caracas';
 const CATS = {
@@ -32,22 +33,6 @@ function aviso(msg, error = false) {
     clearTimeout(avisoT); avisoT = setTimeout(() => (n.hidden = true), 4500);
 }
 
-async function api(url, cuerpo, reintentar = true) {
-    const r = await fetch(url, {
-        credentials: 'same-origin', method: cuerpo ? 'POST' : 'GET',
-        headers: { Accept: 'application/json', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
-        body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-    });
-    if (r.status === 401) {
-        if (reintentar && (await fetch('/api/sesion', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.ok).catch(() => false)))
-            return api(url, cuerpo, false);
-        location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
-        throw new Error('Sesión expirada');
-    }
-    const d = await r.json().catch(() => null);
-    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo completar la operación.');
-    return d;
-}
 
 //--- TARJETA ---//
 /** Tarjeta de una notificación. El texto siempre entra como textContent (nunca HTML). */

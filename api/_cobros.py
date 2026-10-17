@@ -304,7 +304,7 @@ def regularizar(d):
         raise c.ErrorPeticion(409, "Esta factura está anulada.")
     # created_at viene en UTC: la fecha de la venta es la de Venezuela.
     try:
-        venta = datetime.fromisoformat(str(f["created_at"]).replace("Z", "+00:00")).astimezone(cred.VENEZUELA).date()
+        venta = c.parse_iso(f["created_at"]).astimezone(cred.VENEZUELA).date()
     except (ValueError, TypeError, KeyError):
         venta = _fecha(f.get("created_at")) or cred.hoy()
     cred.crear_cuenta({

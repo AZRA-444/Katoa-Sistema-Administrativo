@@ -2,10 +2,13 @@
 
 El prefijo "_" hace que Vercel NO lo exponga como endpoint.
 El mismo PDF sirve para WhatsApp y para imprimir: el navegador lo abre y se manda a la impresora.
-Recibe los diccionarios YA validados por api/enviar-factura.py (`factura` y `detalles`).
+Recibe los diccionarios de la factura (`factura` y `detalles`): los validados por api/enviar-factura.py al
+guardarla, o los leídos de la base de datos para regenerar un PDF perdido (_whatsapp.regenerar_pdf). La fecha
+impresa es la de la factura (`factura["created_at"]` si existe), nunca la hora en que se regenera.
 """
 import io
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
@@ -26,6 +29,11 @@ EMPRESA = os.environ.get("EMPRESA_NOMBRE", "Corporación Katoa Global")
 EMPRESA_RIF = os.environ.get("EMPRESA_RIF", "")
 EMPRESA_DIRECCION = os.environ.get("EMPRESA_DIRECCION", "")
 EMPRESA_TELEFONO = os.environ.get("EMPRESA_TELEFONO", "")
+
+# Rótulo de la tasa en el PDF. La tasa de la factura puede haberla ajustado el vendedor (dentro del margen que
+# valida el servidor frente a la tasa oficial), así que por defecto se rotula «tasa de cambio». Si tu operación
+# exige el rótulo «tasa BCV», pon PDF_ETIQUETA_TASA="tasa BCV" en Vercel.
+ETIQUETA_TASA = os.environ.get("PDF_ETIQUETA_TASA", "tasa de cambio")
 
 VENEZUELA = timezone(timedelta(hours=-4))  # sin horario de verano
 
@@ -84,7 +92,15 @@ def _estilos():
     }
 
 
-def _fecha():
+def _fecha(creada=None):
+    """Fecha de la factura en hora de Venezuela. `creada` = ISO de la base de datos; sin él, la hora actual."""
+    if creada:
+        try:
+            s = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], str(creada).replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(s)
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(VENEZUELA).strftime("%d/%m/%Y  %I:%M %p")
+        except ValueError:
+            pass
     return datetime.now(VENEZUELA).strftime("%d/%m/%Y  %I:%M %p")
 
 
@@ -119,7 +135,7 @@ def generar_pdf(factura, detalles):
     datos_factura = [
         Paragraph(DOC_TITULO, s["titulo"]),
         Paragraph(f"N.º {_e(factura['id_factura'])}", s["der"]),
-        Paragraph(_fecha(), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
+        Paragraph(_fecha(factura.get("created_at")), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
     ]
     cab = Table([[datos_empresa, datos_factura]], colWidths=[ancho * 0.55, ancho * 0.45])
     cab.setStyle(TableStyle([
@@ -189,7 +205,7 @@ def generar_pdf(factura, detalles):
         lineas.append(("Total a precio de lista", f"$ {_m(subtotal)}", "base"))
         lineas.append(("Descuento por pago en dólares", f"- $ {_m(subtotal - cobrado)}", "base"))
     lineas.append(("TOTAL A PAGAR ($)" if con_descuento else "TOTAL ($)", f"$ {_m(cobrado)}", "total"))
-    lineas.append((f"Total Bs (tasa BCV {_m(tasa)})", f"Bs {_m(factura['total_bs'])}", "base"))
+    lineas.append((f"Total Bs ({ETIQUETA_TASA} {_m(tasa)})", f"Bs {_m(factura['total_bs'])}", "base"))
     filas_tot = []
     for etiqueta, valor, est in lineas:
         est_izq = s["totalq"] if est == "total" else s["base"]

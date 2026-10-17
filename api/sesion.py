@@ -33,26 +33,25 @@ class handler(BaseHTTPRequestHandler):
         nuevas_cookies = []
 
         try:
-            usuario = c.auth_usuario(access) if access else None
+            usuario, perfil = c.identidad(access) if access else (None, None)
 
             if not usuario and refresh:
                 renovada = c.auth_refresh(refresh)
                 if renovada:
                     access = renovada["access_token"]
                     nuevas_cookies = c.cookies_sesion(renovada)
-                    usuario = c.auth_usuario(access)
+                    usuario, perfil = c.identidad(access)
 
             if not usuario:
                 return c.responder(
                     self, 401, {"autenticado": False},
                     cookies=c.cookies_borrar() if (access or refresh) else (),
                 )
-
-            perfil = c.obtener_perfil(usuario["id"])
         except (requests.RequestException, RuntimeError):
             return c.responder(self, 503, {"error": MSG_NO_DISPONIBLE})
 
         if perfil is None or not perfil.get("activo"):
+            c.invalidar_sesion(access=access)
             c.auth_logout(access)
             return c.responder(
                 self, 403, {"autenticado": False, "error": "Cuenta sin acceso."},
@@ -91,6 +90,7 @@ class handler(BaseHTTPRequestHandler):
 
         access = c.leer_cookies(self).get(c.COOKIE_ACCESS)
         if access and c.config_completa():
+            c.invalidar_sesion(access=access)
             c.auth_logout(access)
 
         return c.responder(self, 200, {"ok": True}, cookies=c.cookies_borrar())

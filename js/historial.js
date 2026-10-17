@@ -5,7 +5,8 @@
  * Servidor: /api/historial
  * ========================================================================== */
 import { usd, bs, round2 } from './utils/format.js';
-import { abrirFactura, api, aviso } from './factura-modal.js';
+import { abrirFactura, aviso } from './factura-modal.js';
+import { apiJson as api } from './utils/api.js';
 
 const API = '/api/historial';
 const $ = (sel, raiz = document) => raiz.querySelector(sel);

@@ -141,17 +141,19 @@ def _anular(d, u):
     motivo = re.sub(r"\s+", " ", str(d.get("motivo") or "")).strip()
     if not 3 <= len(motivo) <= 300:
         raise c.ErrorPeticion(400, "Escribe el motivo de la anulación (entre 3 y 300 caracteres).")
-    # Quien no es admin necesita un código aprobado para ESTA factura (se consume aquí, antes de anular).
-    quien = aut.exigir(u, d.get("autorizacion"), "anular_factura", id_factura, {})
-    if quien:
-        motivo = aut.con_aval(motivo, quien)
-    r = c._http.post(f"{c.SUPABASE_URL}/rest/v1/rpc/anular_factura",
-                     json={"p_id": id_factura, "p_motivo": motivo, "p_usuario": u["id"]},
-                     headers=c._hdr_servicio(), timeout=c.TIMEOUT * 2)
+    # Quien no es admin necesita un código aprobado para ESTA factura. Aquí solo se comprueba; el código se
+    # consume dentro de la misma transacción SQL que anula (si anular falla, el código sigue vigente).
+    ticket = aut.verificar(u, d.get("autorizacion"), "anular_factura", id_factura, {})
+    if ticket:
+        motivo = aut.con_aval(motivo, ticket["aprobador"])
+    r = aut.rpc_autorizada(u, ticket, "anular_factura",
+                           {"p_id": id_factura, "p_motivo": motivo, "p_usuario": u["id"]}, timeout=c.TIMEOUT * 2)
     if r.status_code in (200, 204):
         # Factura a crédito: su deuda deja de cobrarse. Devuelve lo abonado (si hubo) para avisar a quien anula.
         return cred.anular_por_factura(id_factura)
     print(f"[historial] anular {id_factura} {r.status_code}: {r.text[:400]}", file=sys.stderr)
+    if aut.es_invalida(r.text):
+        raise c.ErrorPeticion(403, aut.MSG_INVALIDA)
     for clave, (status, msg) in MENSAJES.items():
         if clave in r.text:
             raise c.ErrorPeticion(status, msg)

@@ -23,6 +23,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _comun as c  # noqa: E402
+import _ventas as ventas_def  # noqa: E402
 
 VENEZUELA = timezone(timedelta(hours=-4))
 CENT = Decimal("0.01")
@@ -86,7 +87,7 @@ def resumen(mes, ini, fin, ventas):
     for f in ventas:
         if f.get("metodo_pago") == "CREDITO":
             continue          # el fiado comisiona al cobrarse (abonos); su saldo pendiente se calcula abajo
-        fila(f.get("vendedor"))["ventas"] += _d(f.get("total_usd"))
+        fila(f.get("vendedor"))["ventas"] += ventas_def.venta_usd(f)      # misma definición de «venta» que Reportes
 
     # Reembolsos de devoluciones hechas en el mes (las de facturas a crédito ya bajaron la deuda, no hubo cobro).
     devs = _get("devoluciones", [("select", "total_reembolso_usd,facturas(vendedor,metodo_pago)"),
@@ -225,8 +226,10 @@ def pagar(d, u, ini_fin, ventas):
         print(f"[comisiones] pago {p.status_code}: {p.text[:300]}", file=sys.stderr)
         if egreso_id is not None:   # no dejar un egreso sin su pago: se deshace y se pide reintentar
             try:
-                c._http.delete(f"{c.SUPABASE_URL}/rest/v1/egresos", params={"id": f"eq.{egreso_id}"},
-                               headers=c._hdr_servicio({"Prefer": "return=minimal"}), timeout=c.TIMEOUT)
+                c._http.patch(f"{c.SUPABASE_URL}/rest/v1/egresos", params={"id": f"eq.{egreso_id}"},
+                              json={"eliminado_en": datetime.now(timezone.utc).isoformat(), "eliminado_por": u["id"],
+                                    "motivo_eliminacion": "Pago de comisión no registrado: se deshizo el egreso"},
+                              headers=c._hdr_servicio({"Prefer": "return=minimal"}), timeout=c.TIMEOUT)
             except Exception as e:  # noqa: BLE001
                 print(f"[comisiones] no se pudo deshacer el egreso {egreso_id}: {e!r}", file=sys.stderr)
         raise c.ErrorPeticion(502, "No se pudo registrar el pago de la comisión. Inténtalo de nuevo.")

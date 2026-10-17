@@ -1,4 +1,5 @@
 import { usd } from './utils/format.js';
+import { apiJson as api } from './utils/api.js';
 
 const API = '/api/administrador';
 const TZ = 'America/Caracas';
@@ -25,22 +26,6 @@ function aviso(msg, error = false) {
     clearTimeout(avisoT); avisoT = setTimeout(() => (n.hidden = true), 4500);
 }
 
-async function api(url, cuerpo, reintentar = true) {
-    const r = await fetch(url, {
-        credentials: 'same-origin', method: cuerpo ? 'POST' : 'GET',
-        headers: { Accept: 'application/json', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
-        body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-    });
-    if (r.status === 401) {
-        if (reintentar && (await fetch('/api/sesion', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.ok).catch(() => false)))
-            return api(url, cuerpo, false);
-        location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
-        throw new Error('Sesión expirada');
-    }
-    const d = await r.json().catch(() => null);
-    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo completar la operación.');
-    return d;
-}
 
 //--- CÁLCULOS ---//
 /** Reparte cada factura entre sus métodos (los pagos combinados se prorratean por abono). */
@@ -114,10 +99,11 @@ function ventasFiltradas() {
         (!q || [f.id_factura, f.nombre, f.apellido, f.cedula, f.vendedor].join(' ').toLowerCase().includes(q)));
 }
 function pintarVentas() {
-    const v = ventasFiltradas(), total = suma(v, (f) => f.total_usd), porDia = agrupar(v, (f) => dia(f.fecha), (f) => f.total_usd);
+    const v = ventasFiltradas(), total = suma(v, (f) => f.total_usd), lista = suma(v, (f) => f.lista_usd ?? f.total_usd), porDia = agrupar(v, (f) => dia(f.fecha), (f) => f.total_usd);
     const mejor = ordenado(porDia)[0];
     kpis($('#kVentas'), [
-        ['Total vendido', usd(total)], ['Facturas', String(v.length)],
+        ['Ventas (cobrado)', usd(total), lista > total ? `Lista ${usd(lista)} · descuento por divisas ${usd(lista - total)}` : 'Con descuento por divisas'],
+        ['Facturas', String(v.length)],
         ['Ticket promedio', usd(v.length ? total / v.length : 0)],
         ['Mejor día', mejor ? fechaDia(mejor[0]).slice(0, 5) : '—', mejor ? usd(mejor[1]) : ''],
     ]);
@@ -172,12 +158,12 @@ function pintarFinanzas() {
     const costo = S.costo ?? 0, bruta = ingresos - costo, neta = bruta - egresos;
     const margen = ingresos ? (neta / ingresos) * 100 : 0;
     kpis($('#kFin'), [
-        ['Ingresos', usd(ingresos), `${S.ventas.length} facturas`], ['Gastos totales', usd(costo + egresos), 'Mercancía + egresos'],
+        ['Ingresos (ventas cobradas)', usd(ingresos), `${S.ventas.length} facturas · cobrado y fiado`], ['Gastos totales', usd(costo + egresos), 'Mercancía + egresos'],
         ['Ganancia neta', usd(neta), '', neta >= 0 ? 'pos' : 'neg'], ['Margen neto', `${margen.toFixed(1)} %`, '', neta >= 0 ? 'pos' : 'neg'],
     ]);
     const fila = (t, v, clase = '', nota = '') => el('div', { className: clase }, el('span', {}, t, nota ? el('small', { textContent: nota }) : ''), el('strong', { textContent: usd(v) }));
     $('#estado').replaceChildren(
-        fila('Ingresos por ventas', ingresos),
+        fila('Ingresos por ventas', ingresos, '', 'Lo cobrado y lo fiado, con descuento por pago en divisas'),
         fila('(−) Costo de la mercancía vendida', costo, '', S.costo == null ? 'No disponible: revisa el kardex' : 'Según el kardex'),
         fila('Ganancia bruta', bruta, 'tot'),
         fila('(−) Egresos operativos', egresos),
@@ -317,12 +303,74 @@ function pintarUsuarios() {
     $('#contU').textContent = u.length;
     $('#vacioU').hidden = u.length > 0;
     $('#filasU').closest('.table-wrap').hidden = !u.length;
-    $('#filasU').replaceChildren(...u.map((x) => el('tr', {},
+    // Solo se puede actuar sobre quien tiene un rol que tú podrías asignar, y nunca sobre uno mismo (el servidor lo exige igual).
+    const gestionable = (x) => x.id !== S.usr.yo && S.usr.roles.includes(String(x.rol || '').toLowerCase());
+    const boton = (accion, icono, texto, x) => {
+        const b = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', title: texto }, el('i', { className: `fas ${icono}` }), ` ${texto}`);
+        b.dataset.accion = accion; b.dataset.id = x.id;
+        return b;
+    };
+    $('#filasU').replaceChildren(...u.map((x) => el('tr', { className: x.activo ? '' : 'inactivo' },
         el('td', { textContent: x.nombre || '—' }),
         el('td', { textContent: x.email || '—' }),
         el('td', {}, el('span', { className: 'pill', textContent: ROLES[x.rol] || x.rol || '—' })),
         el('td', {}, x.activo ? 'Activo' : 'Inactivo',
-            x.debe_cambiar_clave ? el('span', { className: 'sub', textContent: 'Pendiente de cambiar su clave' }) : ''))));
+            x.debe_cambiar_clave ? el('span', { className: 'sub', textContent: 'Pendiente de cambiar su clave' }) : ''),
+        el('td', { className: 'acciones' }, ...(gestionable(x) ? [
+            boton('rol', 'fa-user-gear', 'Rol', x),
+            boton('clave', 'fa-key', 'Clave', x),
+            boton('estado', x.activo ? 'fa-user-slash' : 'fa-user-check', x.activo ? 'Desactivar' : 'Reactivar', x),
+        ] : [el('span', { className: 'sub', textContent: x.id === S.usr.yo ? 'Tu cuenta' : '' })])))));
+}
+
+/** Llama a una acción de gestión de usuarios y refresca la lista. Devuelve la respuesta o null si falló (ya avisó). */
+async function gestionarUsuario(cuerpo) {
+    try {
+        const d = await api(API, cuerpo);
+        aviso(d.message || 'Listo.');
+        cargarUsuarios();
+        return d;
+    } catch (e) { aviso(e.message, true); return null; }
+}
+
+function abrirRol(x) {
+    const permitidos = S.usr.roles.filter((r) => r !== String(x.rol || '').toLowerCase());
+    if (!permitidos.length) return aviso('No hay otro rol que puedas asignar.', true);
+    $('#rolSub').textContent = `${x.nombre || x.email} · rol actual: ${ROLES[x.rol] || x.rol}`;
+    $('#rolNuevo').replaceChildren(...permitidos.map((r) => el('option', { value: r, textContent: ROLES[r] || r })));
+    $('#dlgRol').dataset.id = x.id;
+    $('#dlgRol').showModal();
+}
+
+async function accionUsuario(b) {
+    const x = S.usr.usuarios.find((y) => y.id === b.dataset.id);
+    if (!x) return;
+    const quien = x.nombre || x.email;
+    if (b.dataset.accion === 'rol') return abrirRol(x);
+    if (b.dataset.accion === 'estado') {
+        const activar = !x.activo;
+        if (!confirm(activar ? `¿Reactivar a ${quien}? Podrá volver a entrar al sistema.`
+            : `¿Desactivar a ${quien}? Dejará de poder usar el sistema de inmediato (su historial se conserva).`)) return;
+        return gestionarUsuario({ accion: 'usuario_estado', id: x.id, activo: activar });
+    }
+    if (b.dataset.accion === 'clave') {
+        if (!confirm(`¿Restablecer la clave de ${quien}? Se genera una clave temporal y sus sesiones abiertas dejan de servir hasta que la cambie.`)) return;
+        const d = await gestionarUsuario({ accion: 'usuario_clave', id: x.id });
+        if (d) {
+            $('#hClave').textContent = 'Clave restablecida';
+            $('#claveSub').textContent = `${d.usuario.nombre} · ${ROLES[d.usuario.rol] || d.usuario.rol}`;
+            $('#claveTmp').value = d.usuario.clave_temporal;
+            $('#dlgClave').showModal();
+        }
+    }
+}
+
+async function guardarRol(ev) {
+    ev.preventDefault();
+    const dlg = $('#dlgRol'), btn = ev.submitter; if (btn) btn.disabled = true;
+    const d = await gestionarUsuario({ accion: 'usuario_rol', id: dlg.dataset.id, rol: $('#rolNuevo').value });
+    if (btn) btn.disabled = false;
+    if (d) dlg.close();
 }
 
 function abrirUsuario() {
@@ -346,6 +394,7 @@ async function guardarUsuario(ev) {
         $('#dlgUsuario').close();
         $('#claveSub').textContent = `${d.usuario.nombre} · ${d.usuario.email} · ${ROLES[d.usuario.rol] || d.usuario.rol}`;
         $('#claveTmp').value = d.usuario.clave_temporal;
+        $('#hClave').textContent = 'Usuario registrado';
         $('#dlgClave').showModal();
         cargarUsuarios();
     } catch (e) { error(e.message); }
@@ -390,6 +439,9 @@ async function guardarEgreso(ev) {
     $('#tabUsuarios').addEventListener('click', () => cambiarTab('Usuarios'));
     $('#btnUsuario').addEventListener('click', abrirUsuario);
     $('#formUsuario').addEventListener('submit', guardarUsuario);
+    $('#filasU').addEventListener('click', (e) => { const b = e.target.closest('button[data-accion]'); if (b) accionUsuario(b); });
+    $('#formRol').addEventListener('submit', guardarRol);
+    $('#dlgRol [data-cerrar]').addEventListener('click', () => $('#dlgRol').close());
     $('#dlgUsuario [data-cerrar]').addEventListener('click', () => $('#dlgUsuario').close());
     $('#btnCopiarClave').addEventListener('click', copiarClave);
     // La clave solo se ve una vez: Esc no cierra el diálogo por accidente; se cierra con «Ya la copié».
@@ -419,8 +471,11 @@ async function guardarEgreso(ev) {
     $('#dlgEgreso [data-cerrar]').addEventListener('click', () => $('#dlgEgreso').close());
     $('#filasE').addEventListener('click', async (ev) => {
         const b = ev.target.closest('button[data-id]');
-        if (!b || !confirm('¿Eliminar este egreso? Esta acción no se puede deshacer.')) return;
-        try { await api(API, { accion: 'egreso_eliminar', id: Number(b.dataset.id) }); aviso('Egreso eliminado.'); cargar(); }
+        if (!b) return;
+        // Borrado lógico: el egreso deja de contarse pero queda registrado quién y cuándo lo eliminó.
+        const motivo = prompt('¿Eliminar este egreso? Quedará registrado quién lo eliminó y cuándo.\n\nMotivo (opcional):', '');
+        if (motivo === null) return;
+        try { await api(API, { accion: 'egreso_eliminar', id: Number(b.dataset.id), motivo: motivo.trim() }); aviso('Egreso eliminado (queda en el registro de auditoría).'); cargar(); }
         catch (e) { aviso(e.message, true); }
     });
 

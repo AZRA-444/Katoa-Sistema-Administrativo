@@ -5,7 +5,8 @@
  * Se puede abrir directo con  devoluciones.html?factura=FAC-123
  * ========================================================================== */
 import { usd, bs, num, round2, fechaHora, hoyISO, sumarDias } from './utils/format.js';
-import { abrirFactura, api, aviso } from './factura-modal.js';
+import { abrirFactura, aviso } from './factura-modal.js';
+import { apiJson as api } from './utils/api.js';
 
 const API = '/api/administrador';   // devoluciones vive dentro de esta función (límite de funciones de Vercel)
 const $ = (sel, raiz = document) => raiz.querySelector(sel);

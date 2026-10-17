@@ -6,13 +6,16 @@ Lo exponen /api/notificaciones (solicitar, aprobar, rechazar, cancelar y consult
 Flujo:
   1. SOLICITAR  Un usuario que NO tiene el permiso pide autorizar UNA operación concreta, con un motivo.
   2. APROBAR    Un admin la aprueba: se genera un código de 6 dígitos que solo se le muestra a él, una vez.
-  3. USAR       El solicitante envía {autorizacion: {id, codigo}} junto con la operación; `exigir()` lo valida
-                y lo consume en la misma petición.
+  3. USAR       El solicitante envía {autorizacion: {id, codigo}} junto con la operación. `verificar()` comprueba
+                el código SIN consumirlo; `rpc_autorizada()` lo consume y ejecuta la operación en UNA sola
+                transacción SQL (sql/autorizaciones_atomico.sql). Si la operación falla (stock, variante
+                inactiva...), la transacción se revierte y el código sigue vigente: no hay que pedir otro.
 
 Seguridad:
   · El código vale solo para esa acción, ese objetivo (factura o producto), esos datos (cantidad, sentido)
     y ese solicitante. Se compara contra lo guardado en la solicitud, no contra lo que diga el navegador.
-  · Un solo uso (actualización condicional `usada_en is null`), caduca a los 10 min y se bloquea a los 3 intentos.
+  · Un solo uso (actualización condicional `usada_en is null` dentro de la transacción de la operación), caduca a
+    los 10 min y se bloquea a los 3 intentos.
   · En la base solo queda un HMAC-SHA256 del código (clave AUTORIZACION_SECRET); se compara con hmac.compare_digest.
   · Auditoría: quién pidió, quién autorizó y cuándo quedan en `autorizaciones`; además el aval se anota en el
     motivo de la anulación y del movimiento de inventario (kardex).
@@ -83,7 +86,7 @@ def _nombre(u):
 
 def _vigente(f):
     """Estado que ve el cliente: una aprobación vencida se muestra como «vencida» aunque siga «aprobada» en la base."""
-    if f["estado"] == "aprobada" and f.get("expira_en") and datetime.fromisoformat(f["expira_en"]) <= _ahora():
+    if f["estado"] == "aprobada" and f.get("expira_en") and c.parse_iso(f["expira_en"]) <= _ahora():
         return "vencida"
     return f["estado"]
 
@@ -261,11 +264,11 @@ def listar(u):
     if r.status_code != 200:
         _fallo(r, "listar")
     pendientes, recientes = [], []
-    limite = datetime.fromisoformat(_limite_solicitud())
+    limite = c.parse_iso(_limite_solicitud())
     for f in r.json():
         f["estado"] = _vigente(f)
         f["accion_nombre"] = ACCIONES.get(f["accion"], f["accion"])
-        if f["estado"] == "pendiente" and datetime.fromisoformat(f["creada_en"]) >= limite:
+        if f["estado"] == "pendiente" and c.parse_iso(f["creada_en"]) >= limite:
             pendientes.append(f)
         elif f["estado"] == "aprobada":
             pendientes.append(f)        # aprobada y vigente: el admin puede generar otro código si lo perdió
@@ -285,12 +288,17 @@ def contar_pendientes():
 
 
 # ── Uso: lo llaman historial.py e inventario.py ─────────────────────────────
-def exigir(u, aut, accion, objetivo, detalle):
-    """Autoriza la operación. Devuelve None si el usuario es admin (no necesita nada) o el nombre de quien
-    autorizó si trae un código válido; en cualquier otro caso lanza ErrorPeticion.
+MSG_INVALIDA = "La autorización ya no es válida (se usó, venció o no corresponde). Solicita una nueva."
 
-    Llamar DESPUÉS de validar los datos de la operación y ANTES de ejecutarla: el código se consume aquí,
-    así que dos envíos simultáneos nunca pueden ejecutar la operación dos veces.
+
+def verificar(u, aut, accion, objetivo, detalle):
+    """Comprueba el código SIN consumirlo. Devuelve None si el usuario es admin (no necesita nada) o un «ticket»
+    (para `rpc_autorizada`) si trae un código válido; en cualquier otro caso lanza ErrorPeticion.
+
+    Llamar DESPUÉS de validar los datos de la operación. El código se consume al ejecutar la operación
+    (`rpc_autorizada`), en la misma transacción SQL: si la operación falla, el código no se gasta.
+    Cada llamada reserva un intento (3 por código) aunque el código sea correcto; si la operación falla por
+    otra causa, `rpc_autorizada` devuelve ese intento.
     """
     if c.es_admin(u):
         return None
@@ -313,19 +321,66 @@ def exigir(u, aut, accion, objetivo, detalle):
         raise c.ErrorPeticion(403, _MSG_USO.get(res.get("resultado"), _MSG_USO["invalida"]))
 
     # 2) Comparar en tiempo constante.
-    if not hmac.compare_digest(str(res["hash"]), _hash(i, codigo)):
+    hash_enviado = _hash(i, codigo)
+    if not hmac.compare_digest(str(res["hash"]), hash_enviado):
         quedan = max(0, 3 - int(res.get("intentos") or 3))
         raise c.ErrorPeticion(403, "Código incorrecto. " + (
             f"Te quedan {quedan} intento{'s' if quedan != 1 else ''}." if quedan else
             "Se bloqueó: solicita una nueva autorización."))
+    return {"id": i, "hash": hash_enviado, "aprobador": res.get("aprobador") or "administración",
+            "accion": accion, "objetivo": str(objetivo), "detalle": detalle}
 
-    # 3) Consumirlo: la actualización condicional solo la gana UNA petición.
+
+def _devolver_intento(i):
+    """La operación falló por otra causa y el código era correcto: ese intento no debe gastarse. Mejor esfuerzo."""
+    try:
+        c._http.post(f"{c.SUPABASE_URL}/rest/v1/rpc/autorizacion_reintegrar_intento", json={"p_id": i},
+                     headers=c._hdr_servicio(), timeout=c.TIMEOUT)
+    except Exception as e:  # noqa: BLE001
+        print(f"[autorizaciones] no se pudo devolver el intento de {i}: {e!r}", file=sys.stderr)
+
+
+def _consumir_aparte(ticket):
+    """CAMINO DE RESPALDO (solo si aún no se ejecutó sql/autorizaciones_atomico.sql): consume el código en una
+    petición aparte, ANTES de la operación. Es el comportamiento anterior: si la operación falla, el código se pierde."""
     r = _rest("PATCH", extra={"Prefer": "return=representation"},
               json={"estado": "usada", "usada_en": _ahora().isoformat()},
-              params={"id": f"eq.{i}", "estado": "eq.aprobada", "usada_en": "is.null",
+              params={"id": f"eq.{ticket['id']}", "estado": "eq.aprobada", "usada_en": "is.null",
                       "expira_en": f"gt.{_ahora().isoformat()}"})
     if r.status_code != 200:
         _fallo(r, "consumir")
     if not r.json():
         raise c.ErrorPeticion(403, _MSG_USO["usada"])
-    return res.get("aprobador") or "administración"
+
+
+def rpc_autorizada(u, ticket, nombre, params, timeout=None):
+    """Ejecuta la función SQL `nombre` ('anular_factura' | 'inv_mover') y devuelve la respuesta HTTP.
+
+    · Admin (ticket None): llamada directa, como siempre.
+    · Con ticket: llama a `<nombre>_autorizada`, que consume el código y ejecuta la operación en UNA transacción.
+      Si la operación falla, todo se revierte (el código sigue vigente). El llamador interpreta los errores de la
+      operación como siempre; `es_invalida(texto)` detecta que la autorización dejó de valer (se usó en paralelo,
+      venció...).
+    """
+    timeout = timeout or c.TIMEOUT
+    url = f"{c.SUPABASE_URL}/rest/v1/rpc"
+    if ticket is None:
+        return c._http.post(f"{url}/{nombre}", json=params, headers=c._hdr_servicio(), timeout=timeout)
+
+    cuerpo = {**params, "p_aut_id": ticket["id"], "p_aut_hash": ticket["hash"]}
+    if nombre == "inv_mover":
+        cuerpo.update(p_aut_accion=ticket["accion"], p_aut_sentido=ticket["detalle"].get("sentido"))
+    r = c._http.post(f"{url}/{nombre}_autorizada", json=cuerpo, headers=c._hdr_servicio(), timeout=timeout)
+    if r.status_code == 404 or "PGRST202" in r.text:
+        print(f"[autorizaciones] ⚠ falta sql/autorizaciones_atomico.sql: el código se consume antes de la operación",
+              file=sys.stderr)
+        _consumir_aparte(ticket)
+        return c._http.post(f"{url}/{nombre}", json=params, headers=c._hdr_servicio(), timeout=timeout)
+    if r.status_code not in (200, 204) and not es_invalida(r.text):
+        _devolver_intento(ticket["id"])
+    return r
+
+
+def es_invalida(texto):
+    """True si la función SQL rechazó la autorización (ya usada, vencida o que no corresponde)."""
+    return "autorizacion_invalida" in (texto or "")

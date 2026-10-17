@@ -19,32 +19,12 @@
  *   });                                                 // null si el usuario cancela
  * Servidor: /api/notificaciones (solicitar, estado, cancelar) y el endpoint de la operación (valida el código).
  * ========================================================================== */
+import { apiJson as llamar } from './utils/api.js';
 const API = '/api/notificaciones';
 const SONDEO_MS = 4000;
 const $ = (s) => document.querySelector(s);
 let montado = false;
 
-async function llamar(url, cuerpo, reintentar = true) {
-    let r;
-    try {
-        r = await fetch(url, {
-            credentials: 'same-origin', method: cuerpo ? 'POST' : 'GET',
-            headers: { Accept: 'application/json', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
-            body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-        });
-    } catch {
-        throw new Error('Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.');
-    }
-    if (r.status === 401) {
-        if (reintentar && (await fetch('/api/sesion', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.ok).catch(() => false)))
-            return llamar(url, cuerpo, false);
-        location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
-        throw new Error('Sesión expirada');
-    }
-    const d = await r.json().catch(() => null);
-    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo completar la operación.');
-    return d;
-}
 
 function montar() {
     if (montado) return;

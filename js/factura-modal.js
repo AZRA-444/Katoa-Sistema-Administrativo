@@ -14,7 +14,7 @@
  * Servidor: /api/historial (factura, comprobante, anular) y /api/factura-pdf (PDF y WhatsApp).
  * ========================================================================== */
 import { usd, bs } from './utils/format.js';
-import { urlPdfFactura, reenviarWhatsapp } from './utils/api.js';
+import { urlPdfFactura, reenviarWhatsapp, apiJson as api } from './utils/api.js';
 import { conAutorizacion } from './autorizacion.js';
 
 const API = '/api/historial';
@@ -45,27 +45,6 @@ const soloDig = (s) => String(s ?? '').replace(/\D/g, '');
 let factura = null, opciones = {}, avisoT, montado = false;
 
 //--- Comunicación con el servidor ---//
-export async function api(url, cuerpo, reintentar = true) {
-    let r;
-    try {
-        r = await fetch(url, {
-            credentials: 'same-origin', method: cuerpo ? 'POST' : 'GET',
-            headers: { Accept: 'application/json', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
-            body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-        });
-    } catch {
-        throw new Error('Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.');
-    }
-    if (r.status === 401) {
-        if (reintentar && (await fetch('/api/sesion', { credentials: 'same-origin', cache: 'no-store' }).then((x) => x.ok).catch(() => false)))
-            return api(url, cuerpo, false);
-        location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
-        throw new Error('Sesión expirada');
-    }
-    const d = await r.json().catch(() => null);
-    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || d?.error || 'No se pudo completar la operación.');
-    return d;
-}
 
 const ocultarAviso = () => {
     const n = $('#fmAviso');

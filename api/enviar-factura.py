@@ -429,7 +429,7 @@ def _verificar_tasas(p, factura):
     if r is None:
         print("[enviar-factura] sin tasa de referencia BCV: se acepta la enviada", file=sys.stderr)
     elif abs(tasa - r) * 100 / r > tol:
-        _err(f"La tasa de cambio ({tasa:.2f}) se aleja demasiado de la tasa de referencia ({r:.2f}). "
+        _err(f"La tasa de cambio ({tasa:.2f}) se aleja más de {tol:g} % de la tasa oficial del BCV ({r:.2f}). "
              "Actualízala e inténtalo de nuevo.")
     usdt = tasa_usdt_usada(p)
     if usdt is None:
@@ -529,17 +529,23 @@ def _guardar(factura, detalles, usuario_id):
 def _pdf_y_whatsapp(factura, detalles, enviar, presupuesto):
     """Mejor esfuerzo: la factura ya está guardada, nada de esto debe hacerla fallar.
     Cada llamada externa se acota al tiempo que queda (presupuesto); si no queda, se omite y el navegador
-    ofrece reintentar. Devuelve (pdf_guardado: bool, estado_whatsapp: str|None)."""
+    ofrece reintentar. Devuelve (pdf_guardado: bool, estado_whatsapp: str|None).
+
+    Reintento de una factura duplicada (`enviar=False`): si el PDF no existe se regenera DESDE LA BASE DE DATOS
+    (con su fecha original), nunca con los datos de la petición repetida, que pueden diferir de lo guardado."""
     id_factura = factura["id_factura"]
     try:
-        if not enviar:  # reintento de una factura duplicada: solo asegurar que el PDF exista
+        if not enviar:
             t = presupuesto.timeout(c.TIMEOUT * 2)
             if t is None:
                 return False, None
             if wa.descargar_pdf(id_factura, timeout=t) is not None:
                 return True, None
             t = presupuesto.timeout(c.TIMEOUT * 2)
-            return (wa.subir_pdf(id_factura, generar_pdf(factura, detalles), timeout=t) if t else False), None
+            if t is None:
+                return False, None
+            regenerado = wa.regenerar_pdf(id_factura, timeout=t)
+            return (regenerado[1] if regenerado else False), None
         pdf = generar_pdf(factura, detalles)
         t = presupuesto.timeout(c.TIMEOUT * 2)
         guardado = wa.subir_pdf(id_factura, pdf, timeout=t) if t else False

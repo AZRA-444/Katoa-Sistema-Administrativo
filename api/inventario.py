@@ -318,16 +318,21 @@ def _mover(d, u, tipo):
     # Quien no es admin necesita un código aprobado para ESTE producto, cantidad y sentido.
     accion = "salida" if tipo == "SALIDA_OTRO" else "ajuste"
     sentido = "entrada" if tipo == "AJUSTE_ENTRADA" else "salida"
-    quien = aut.exigir(u, d.get("autorizacion"), accion, variante, {"cantidad": cantidad, "sentido": sentido})
-    if quien:
-        motivo = aut.con_aval(motivo, quien)
-    _rpc("inv_mover", {
-        "p_variante": variante,
-        "p_tipo": tipo,
-        "p_cantidad": cantidad,
-        "p_usuario": u["id"],
-        "p_motivo": motivo,
-    })
+    ticket = aut.verificar(u, d.get("autorizacion"), accion, variante, {"cantidad": cantidad, "sentido": sentido})
+    if ticket:
+        motivo = aut.con_aval(motivo, ticket["aprobador"])
+    params = {"p_variante": variante, "p_tipo": tipo, "p_cantidad": cantidad, "p_usuario": u["id"], "p_motivo": motivo}
+    # Con código, el consumo del código y el movimiento van en UNA transacción SQL: si el movimiento falla
+    # (stock insuficiente, variante inactiva), el código sigue vigente.
+    r = aut.rpc_autorizada(u, ticket, "inv_mover", params)
+    if r.status_code not in (200, 204):
+        print(f"[inventario] rpc inv_mover {r.status_code}: {r.text[:400]}", file=sys.stderr)
+        if aut.es_invalida(r.text):
+            raise c.ErrorPeticion(403, aut.MSG_INVALIDA)
+        if r.status_code >= 500:
+            raise c.ErrorPeticion(502, "No se pudo completar la operación. Inténtalo de nuevo.")
+        raise c.ErrorPeticion(409 if "stock_insuficiente" in r.text else 400,
+                              _traducir(r.text) or "No se pudo completar la operación.")
 
 
 def _proveedor(d, u):

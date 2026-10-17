@@ -4,8 +4,8 @@
  * Servidor: /api/historial (modos cobros_*, acciones cobro_abonar / cobro_regularizar). SQL: sql/cobros.sql
  * ========================================================================== */
 import { usd, bs, round2, fechaISO, fechaHora } from './utils/format.js';
-import { obtenerTasa } from './utils/api.js';
-import { abrirFactura, api, aviso } from './factura-modal.js';
+import { obtenerTasa, apiJson as api } from './utils/api.js';
+import { abrirFactura, aviso } from './factura-modal.js';
 
 const API = '/api/historial';
 const $ = (sel, raiz = document) => raiz.querySelector(sel);

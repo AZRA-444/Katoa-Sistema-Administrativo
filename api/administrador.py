@@ -4,15 +4,19 @@ GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias}
 GET  ?modo=dev_lista | dev_buscar | dev_factura  -> devoluciones de productos (ver api/_devoluciones.py)
 GET  ?modo=com_resumen&mes=AAAA-MM               -> comisiones de vendedores (ver api/_comisiones.py)
 GET  ?modo=usr_lista                             -> usuarios y roles que se pueden asignar (ver api/_usuarios.py)
-POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar" | "usuario_crear", ...}
+POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar"
+              | "usuario_crear" | "usuario_estado" | "usuario_rol" | "usuario_clave", ...}
 
-Ventas: tabla `facturas`. Costo de ventas: `inv_kardex` (SALIDA_VENTA - DEVOLUCION_CLIENTE).
-Egresos: tabla `egresos` (ver sql/egresos.sql). Las fechas del mes se calculan en hora de Venezuela (UTC-4).
+Ventas: tabla `facturas` (columna de fecha `created_at`). «Venta» = total_usd, lo cobrado con el descuento por pago en
+divisas: la definición vive en api/_ventas.py y es la misma de Reportes y Comisiones. Cada venta trae además `lista_usd`
+(a precio de lista) para mostrar el descuento. Costo de ventas: `inv_kardex` (SALIDA_VENTA - DEVOLUCION_CLIENTE).
+Egresos: tabla `egresos` (ver sql/egresos.sql). «Eliminar» es BORRADO LÓGICO (sql/egresos_borrado_logico.sql): la fila
+queda con quién y cuándo la eliminó y deja de contarse. Las fechas del mes se calculan en hora de Venezuela (UTC-4).
 """
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -23,6 +27,7 @@ import _comisiones as com  # noqa: E402
 import _comun as c  # noqa: E402
 import _devoluciones as dev  # noqa: E402
 import _usuarios as usr  # noqa: E402
+import _ventas as ventas_def  # noqa: E402
 
 MAX_BODY = 32 * 1024     # las devoluciones pueden traer hasta 150 líneas
 PAGINA = 1000           # filas por consulta a Supabase
@@ -32,8 +37,9 @@ MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CATEGORIAS = ["Alquiler", "Servicios", "Nómina", "Comisiones", "Publicidad", "Transporte",
               "Impuestos", "Mantenimiento", "Otros"]
-FECHA_COLS = ("creado_en", "created_at", "fecha")  # columna de fecha de `facturas` (se detecta sola)
-_fecha_col = None
+COL_FECHA = "created_at"   # columna de fecha de `facturas` (la misma que usan Historial y Reportes)
+COLS_VENTA = ("id_factura,nombre,apellido,cedula,vendedor,subtotal_usd,total_usd,metodo_pago,pagos_combinados,"
+              f"estado,{COL_FECHA}")
 
 
 def _get(tabla, params):
@@ -71,33 +77,21 @@ def _todas(tabla, params, tope, que):
             raise c.ErrorPeticion(400, f"Hay demasiados {que} en el mes (más de {tope:,}).".replace(",", "."))
 
 
-def _col_fecha(ini, fin):
-    """Detecta la columna de fecha de `facturas` (una sola vez por instancia)."""
-    global _fecha_col
-    for col in ([_fecha_col] if _fecha_col else FECHA_COLS):
-        r = _get("facturas", [("select", "id_factura"), ("limit", "1"),
-                              (col, f"gte.{ini}T00:00:00-04:00"), (col, f"lt.{fin}T00:00:00-04:00")])
-        if r.status_code == 200:
-            _fecha_col = col
-            return col
-        if r.status_code != 400:  # 400 = la columna no existe: se prueba la siguiente
-            _fallo(r, "facturas")
-    raise c.ErrorPeticion(500, "No se encontró la columna de fecha de las facturas.")
-
-
 def _ventas(ini, fin):
-    col = _col_fecha(ini, fin)
-    filas = _todas("facturas", [("select", "*"), ("order", f"{col}.desc,id_factura.desc"),
-                                (col, f"gte.{ini}T00:00:00-04:00"), (col, f"lt.{fin}T00:00:00-04:00")], MAX_VENTAS, "facturas")
+    """Facturas del mes que cuentan como venta (no anuladas), con la definición de api/_ventas.py."""
+    filas = _todas("facturas", [("select", COLS_VENTA), ("order", f"{COL_FECHA}.desc,id_factura.desc"), ventas_def.FILTRO_VENTA,
+                                (COL_FECHA, f"gte.{ini}T00:00:00-04:00"), (COL_FECHA, f"lt.{fin}T00:00:00-04:00")],
+                   MAX_VENTAS, "facturas")
     salida = []
     for f in filas:
-        if f.get("anulada") is True or str(f.get("estado") or "").lower() in ("anulada", "cancelada"):
+        if not ventas_def.es_venta(f):
             continue
         salida.append({
             "id_factura": f.get("id_factura"), "nombre": f.get("nombre"), "apellido": f.get("apellido"),
             "cedula": f.get("cedula"), "vendedor": f.get("vendedor") or "Sin vendedor",
-            "total_usd": float(f.get("total_usd") or 0), "metodo_pago": f.get("metodo_pago"),
-            "pagos_combinados": f.get("pagos_combinados"), "fecha": f.get(col),
+            "total_usd": float(ventas_def.venta_usd(f)),        # VENTA: lo cobrado, con descuento por divisas
+            "lista_usd": float(ventas_def.lista_usd(f)),        # el mismo pedido a precio de lista
+            "metodo_pago": f.get("metodo_pago"), "pagos_combinados": f.get("pagos_combinados"), "fecha": f.get(COL_FECHA),
         })
     return salida
 
@@ -120,7 +114,7 @@ def _costo_ventas(ini, fin):
 
 def _egresos(ini, fin):
     return _todas("egresos", [("select", "id,fecha,categoria,descripcion,proveedor,monto_usd"), ("order", "fecha.desc,id.desc"),
-                              ("fecha", f"gte.{ini}"), ("fecha", f"lt.{fin}")], MAX_FILAS, "egresos")
+                              ("eliminado_en", "is.null"), ("fecha", f"gte.{ini}"), ("fecha", f"lt.{fin}")], MAX_FILAS, "egresos")
 
 
 def _texto(v, nombre, minimo, maximo):
@@ -152,14 +146,27 @@ def _crear(d, u):
         _fallo(r, "egresos")
 
 
-def _eliminar(d):
+def _eliminar(d, u):
+    """Borrado LÓGICO: marca el egreso con quién y cuándo lo eliminó (y el motivo, si lo hay). No se pierde la fila."""
     i = d.get("id")
     if isinstance(i, bool) or not isinstance(i, int) or i < 1:
         raise c.ErrorPeticion(400, "Egreso inválido.")
-    r = c._http.delete(f"{c.SUPABASE_URL}/rest/v1/egresos", params={"id": f"eq.{i}"},
-                       headers=c._hdr_servicio({"Prefer": "return=minimal"}), timeout=c.TIMEOUT)
-    if r.status_code not in (200, 204):
+    motivo = " ".join(str(d.get("motivo") or "").split())[:200] or None
+    # El egreso de una comisión pagada está enlazado a su pago: borrarlo dejaría el pago sin egreso.
+    r = _get("comisiones_pagos", [("select", "id"), ("egreso_id", f"eq.{i}"), ("limit", "1")])
+    if r.status_code != 200:
+        _fallo(r, "comisiones_pagos")
+    if r.json():
+        raise c.ErrorPeticion(409, "Este egreso es el pago de una comisión y no se puede eliminar.")
+    r = c._http.patch(f"{c.SUPABASE_URL}/rest/v1/egresos", params={"id": f"eq.{i}", "eliminado_en": "is.null"},
+                      json={"eliminado_en": datetime.now(timezone.utc).isoformat(), "eliminado_por": u["id"],
+                            "motivo_eliminacion": motivo},
+                      headers=c._hdr_servicio({"Prefer": "return=representation"}), timeout=c.TIMEOUT)
+    if r.status_code != 200:
         _fallo(r, "egresos")
+    if not r.json():
+        raise c.ErrorPeticion(404, "El egreso no existe o ya estaba eliminado.")
+    print(f"[administrador] {u['email']} eliminó el egreso {i}", file=sys.stderr)
 
 
 def _entrada(h, escribe=False):
@@ -215,7 +222,7 @@ class handler(BaseHTTPRequestHandler):
                 _crear(d, u)
                 self._ok(message="Egreso registrado.")
             elif d.get("accion") == "egreso_eliminar":
-                _eliminar(d)
+                _eliminar(d, u)
                 self._ok(message="Egreso eliminado.")
             elif d.get("accion") == "com_config":
                 com.configurar(d, u)
@@ -225,6 +232,9 @@ class handler(BaseHTTPRequestHandler):
                 self._ok(message="Pago de comisión registrado y egreso creado.")
             elif d.get("accion") == "usuario_crear":
                 self._ok(usuario=usr.crear(d, u), message="Usuario registrado.")
+            elif d.get("accion") in ("usuario_estado", "usuario_rol", "usuario_clave"):
+                resultado, msg = usr.gestionar(d, u)
+                self._ok(usuario=resultado, message=msg)
             elif d.get("accion") == "devolucion_registrar":
                 resultado, ajuste = dev.registrar(d, u)
                 msg = "Devolución registrada."
