@@ -158,11 +158,19 @@ def _buscar(qs, u):
     q = re.sub(r"[^\w\s.\-]", "", (qs.get("q", [""])[0] or ""))[:60].strip()
     if len(q) < 2:
         return []
-    params = [("select", COLS_BUSQUEDA), ("activo", "is.true"), ("order", "nombre.asc"), ("limit", "15")]
-    if q.isdigit() and len(q) >= 6:
-        params.append(("codigo_barras", f"eq.{q}"))
-    else:
-        params.append(("or", f"(nombre.ilike.*{q}*,marca.ilike.*{q}*,color.ilike.*{q}*,talla.ilike.*{q}*)"))
+    base = [("select", COLS_BUSQUEDA), ("activo", "is.true")]
+
+    # 1) Coincidencia exacta de código de barras (cualquier formato, sin distinguir mayúsculas): devuelve solo esa
+    #    variante, para que facturación la autoseleccione. ilike trata «_» como comodín, por eso se confirma la
+    #    igualdad exacta en Python.
+    candidatas = _leer("inv_catalogo", base + [("codigo_barras", f"ilike.{q}"), ("limit", "5")])
+    exacto = [p for p in candidatas if str(p.get("codigo_barras") or "").lower() == q.lower()]
+    if exacto:
+        return exacto
+
+    # 2) Búsqueda por texto
+    params = base + [("order", "nombre.asc"), ("limit", "15"),
+                     ("or", f"(nombre.ilike.*{q}*,marca.ilike.*{q}*,color.ilike.*{q}*,talla.ilike.*{q}*)")]
     return _leer("inv_catalogo", params)
 
 
