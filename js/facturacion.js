@@ -219,7 +219,14 @@ function initProducto() {
     };
     const etiqueta = (p) => [p.nombre, p.color, p.talla].filter(Boolean).join(' - ');
 
-    function elegir(p) {
+    // Autoselección: si lo escrito/escaneado coincide EXACTAMENTE con el código de barras de UNA variante, se elige sola.
+    const norm = (s) => String(s ?? '').trim().toLowerCase();
+    const coincidenciaExacta = (resultados, q) => {
+        const exactos = resultados.filter((p) => p?.id != null && norm(p.codigo_barras) === norm(q));
+        return exactos.length === 1 ? exactos[0] : null;
+    };
+
+    function elegir(p, { auto = false } = {}) {
         sel = {
             id: p.id, stock: Number(p.cantidad) || 0, precioDetal: Number(p.precio_detal) || 0,
             precioMayor: Number(p.precio_mayor) || 0, cantidadMayor: Number(p.cantidad_mayor) || 0,
@@ -229,6 +236,14 @@ function initProducto() {
         if (!(Number(cant.value) > 0)) cant.value = 1;
         precio.value = precioUnitario(Number(cant.value), sel).toFixed(2);
         actualizarTotal(); cerrar(); cant.select();
+
+        if (auto) { // feedback visual: el producto se seleccionó solo
+            for (const campo of [nombre, precio]) {
+                campo.classList.remove('autorrelleno');
+                void campo.offsetWidth;
+                campo.classList.add('autorrelleno');
+            }
+        }
     }
 
     function pintar(resultados, texto) {
@@ -252,20 +267,35 @@ function initProducto() {
         nombre.setAttribute('aria-expanded', 'true');
     }
 
+    async function buscar(q) {
+        ctrl?.abort(); ctrl = new AbortController();
+        try {
+            const r = await buscarProductos(q, ctrl.signal);
+            if (nombre.value.trim() !== q) return;          // el texto cambió mientras tanto
+            const exacto = coincidenciaExacta(r, q);
+            if (exacto) return elegir(exacto, { auto: true });
+            pintar(r, q);
+        } catch (e) { if (e.name !== 'AbortError') cerrar(); }
+    }
+
     nombre.addEventListener('input', () => {
         sel = null; clearTimeout(timer); ctrl?.abort();
         const q = nombre.value.trim();
         if (q.length < 2) return cerrar();
-        timer = setTimeout(async () => {
-            ctrl = new AbortController();
-            try {
-                const r = await buscarProductos(q, ctrl.signal);
-                if (nombre.value.trim() === q) pintar(r, q);
-            } catch (e) { if (e.name !== 'AbortError') cerrar(); }
-        }, 300);
+        timer = setTimeout(() => buscar(q), 300);
     });
 
     nombre.addEventListener('keydown', (e) => {
+        // Enter sin opción marcada (p. ej. lector de códigos de barras): busca ya, sin esperar el debounce.
+        if (e.key === 'Enter' && (lista.hidden || activo < 0)) {
+            const q = nombre.value.trim();
+            if (q.length >= 2 && !sel) {
+                e.preventDefault();
+                clearTimeout(timer);
+                buscar(q);
+            }
+            return;
+        }
         if (lista.hidden) return;
         const n = lista.children.length;
         if (e.key === 'ArrowDown') { e.preventDefault(); marcar((activo + 1) % n); }
