@@ -15,6 +15,13 @@ Categorías:
 
 Tablas: `notificaciones` y `notificaciones_lecturas` (ver sql/notificaciones.sql).
 
+Notificaciones push (lógica en api/_push.py, tabla en sql/push_suscripciones.sql):
+GET ?modo=push_clave          -> {clave, disponible}: clave pública VAPID para suscribir el dispositivo
+POST {accion: "push_suscribir", suscripcion}   (cualquier usuario: registra ESTE dispositivo)
+POST {accion: "push_quitar", endpoint}         (cualquier usuario: lo da de baja; se usa al cerrar sesión)
+POST {accion: "push_probar"}                   (cualquier usuario: se envía un aviso de prueba a sus dispositivos)
+Se envía push al publicar una notificación, al solicitar una autorización (a los admin) y al aprobarla/rechazarla (al solicitante).
+
 Autorizaciones con código de un solo uso (lógica en api/_autorizaciones.py, tabla en sql/autorizaciones.sql).
 Viven aquí porque el plan Hobby de Vercel limita el número de funciones:
 GET ?modo=autorizacion&id=N   -> estado de UNA solicitud (el solicitante ve solo las suyas; nunca incluye el código)
@@ -34,6 +41,7 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
+import _push  # noqa: E402
 
 MAX_BODY = 8 * 1024
 DIAS_VISIBLES = 90          # la bandeja muestra lo publicado en este plazo
@@ -157,6 +165,7 @@ def _crear(d, u):
         "creado_por": u["id"], "creado_por_nombre": u.get("nombre") or u.get("email")})
     if r.status_code not in (200, 201, 204):
         _fallo(r, "notificaciones")
+    _push.notificar(titulo, mensaje, excluir=u["id"])   # accesorio: si falla, la publicación igual queda hecha
 
 
 def _leer(d, u):
@@ -180,6 +189,32 @@ def _eliminar(d, u):
               params={"id": f"eq.{fila['id']}"}, json={"activa": False})
     if r.status_code not in (200, 204):
         _fallo(r, "notificaciones")
+
+
+# ── Push de autorizaciones ──────────────────────────────────────────────────
+def _push_solicitud(u, d, res):
+    """Avisa a los admin de una solicitud NUEVA (si fue reutilizada por doble clic, no se repite el aviso)."""
+    if res.get("reutilizada"):
+        return
+    accion = aut.ACCIONES.get(d.get("accion_autorizar"), "una operación")
+    _push.notificar("Solicitud de autorización", f"{u.get('nombre') or u.get('email')} pide autorización: {accion}.",
+                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente")
+
+
+def _push_respuesta(i, aprobada):
+    """Avisa al solicitante. Nunca incluye el código: ese solo lo ve el admin, una vez.
+
+    Se llama DESPUÉS de aprobar/rechazar: no puede lanzar (aprobar devuelve el código una sola vez y no debe perderse)."""
+    try:
+        r = aut._rest("GET", params={"select": "solicitante_id,resumen", "id": f"eq.{i}", "limit": "1"})
+        if r.status_code != 200 or not r.json():
+            return
+        f = r.json()[0]
+        texto = ("Aprobada. Pide el código a un administrador: " if aprobada else "Rechazada: ") + str(f.get("resumen") or "")
+        _push.notificar("Tu solicitud fue " + ("aprobada" if aprobada else "rechazada"), texto,
+                        usuarios=[str(f["solicitante_id"])], tag=f"autorizacion-{i}")
+    except Exception as e:  # noqa: BLE001 — accesorio
+        print(f"[notificaciones] push de respuesta falló: {type(e).__name__}", file=sys.stderr)
 
 
 # ── Lecturas (GET) ──────────────────────────────────────────────────────────
@@ -247,6 +282,8 @@ class handler(BaseHTTPRequestHandler):
                 filas, leidas = _no_leidas(u)
                 extra = {"autorizaciones_pendientes": aut.contar_pendientes()} if _es_admin(u) else {}
                 return self._ok(no_leidas=sum(1 for i in _ids(filas) if i not in leidas), **extra)
+            if modo == "push_clave":
+                return self._ok(clave=_push.clave_publica(), disponible=_push.configurado())
             if modo == "autorizacion":
                 i = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
                 if not i.isdigit():
@@ -286,15 +323,33 @@ class handler(BaseHTTPRequestHandler):
                 _eliminar(d, u)
                 self._ok(message="Notificación eliminada.")
             elif accion == "autorizacion_solicitar":
-                self._ok(message="Solicitud enviada a los administradores.", **aut.solicitar(u, d))
+                res = aut.solicitar(u, d)
+                _push_solicitud(u, d, res)
+                self._ok(message="Solicitud enviada a los administradores.", **res)
             elif accion == "autorizacion_cancelar":
                 aut.cancelar(u, d)
                 self._ok(message="Solicitud cancelada.")
             elif accion == "autorizacion_aprobar":
-                self._ok(**aut.aprobar(u, d))
+                res = aut.aprobar(u, d)
+                _push_respuesta(_id(d), True)
+                self._ok(**res)
             elif accion == "autorizacion_rechazar":
                 aut.rechazar(u, d)
+                _push_respuesta(_id(d), False)
                 self._ok(message="Solicitud rechazada.")
+            elif accion == "push_suscribir":
+                _push.guardar(u, d, self.headers.get("User-Agent", ""))
+                self._ok()
+            elif accion == "push_quitar":
+                _push.quitar(u, d)
+                self._ok()
+            elif accion == "push_probar":
+                if not _push.configurado():
+                    raise c.ErrorPeticion(503, "Los avisos push aún no están configurados en el servidor.")
+                if not _push.notificar("Prueba de avisos", "Si ves esto, los avisos de este dispositivo funcionan.",
+                                       usuarios=[u["id"]], tag="prueba"):
+                    raise c.ErrorPeticion(409, "No se pudo enviar: activa los avisos en este dispositivo e inténtalo otra vez.")
+                self._ok(message="Aviso de prueba enviado.")
             else:
                 raise c.ErrorPeticion(400, "Acción no válida.")
         except c.ErrorPeticion as e:
