@@ -257,6 +257,7 @@ function filaVariante() {
             if (k === 'precio_costo' || k === 'precio_detal') Object.assign(props, { required: true, min: 0.01 });
             const f = campo(`v${n}${k}`, texto, props);
             $('input', f).setAttribute('data-k', k);
+            if (k === 'codigo_barras') avisoCodigo(f);
             cont.append(f);
         }
         const grupo = el('div', { className: 'grupo' }, el('h3', { className: 'grupo-t', textContent: titulo }), cont);
@@ -280,6 +281,41 @@ function filaVariante() {
         el('div', { className: 'check' }, lotes, el('label', { htmlFor: `v${n}lotes`, textContent: 'Maneja lotes y vencimiento' })), loteBox));
     fs.append(botonQuitar(fs, '#variantes', 'Variante'));
     return fs;
+}
+
+//--- CÓDIGO DE BARRAS REPETIDO ---//
+/** Consulta si el código ya lo usa otra variante (activa o no). Devuelve la variante o null. */
+async function buscarCodigo(codigo) {
+    const { data } = await consulta('codigo', { q: codigo });
+    return data[0] || null;
+}
+/** Revisa el código y deja el aviso rojo bajo el campo. Si la consulta falla no molesta: el servidor lo valida al guardar. */
+async function revisarCodigo(input, aviso) {
+    const q = input.value.trim();
+    aviso.hidden = true; aviso.textContent = '';
+    if (!q) return null;
+    try {
+        const p = await buscarCodigo(q);
+        if (!p || input.value.trim() !== q) return null;          // libre, o la persona ya lo cambió mientras se consultaba
+        aviso.textContent = p.activo === false
+            ? `Este código ya existe en «${nombreVar(p)}», que está desactivado.`
+            : `Este código ya existe en «${nombreVar(p)}» (stock: ${p.cantidad}). Para sumar unidades usa «Registrar llegada».`;
+        aviso.hidden = false;
+        return p;
+    } catch { return null; }
+}
+function avisoCodigo(campoDiv) {
+    const input = $('input', campoDiv), aviso = el('p', { className: 'hint alerta', hidden: true });
+    aviso.setAttribute('aria-live', 'polite');
+    campoDiv.append(aviso);
+    input.addEventListener('input', () => { aviso.hidden = true; aviso.textContent = ''; });
+    input.addEventListener('change', () => revisarCodigo(input, aviso));
+    // El lector de códigos termina con Enter: comprueba el código en vez de enviar el formulario a medio llenar.
+    input.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        if (!(await revisarCodigo(input, aviso))) $('[data-k="precio_costo"]', input.closest('fieldset'))?.focus();
+    });
 }
 
 /** Aviso no bloqueante: un precio por debajo del costo suele ser un error de digitación. */
@@ -307,6 +343,10 @@ async function guardarProducto(e) {
         const malo = $$('input', fs).find((x) => !x.disabled && !x.checkValidity());
         if (malo) return falla(err, malo.validity.valueMissing ? `${pre}indica ${etiquetaDe(malo).toLowerCase()}.` : `${pre}${etiquetaDe(malo)}: ${malo.validationMessage}`, malo);
         const v = leerFila(fs);
+        if (v.codigo_barras) {                    // mismo aviso que al salir del campo, ahora bloqueando el guardado
+            const cod = inp('codigo_barras'), aviso = $('.hint.alerta', cod.closest('.field'));
+            if (await revisarCodigo(cod, aviso)) return falla(err, `${pre}${aviso.textContent}`, cod);
+        }
         for (const [precio, cant, etq] of [['precio_mayor', 'cantidad_mayor', 'mayor'], ['precio_gran_mayor', 'cantidad_gran_mayor', 'gran mayor']]) {
             if (!(v[precio] > 0)) delete v[precio];          // un 0 escrito equivale a «sin precio por volumen»
             if (!(v[cant] > 0)) delete v[cant];

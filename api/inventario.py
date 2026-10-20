@@ -5,6 +5,7 @@ GET (cualquier sesión activa):
 GET (encargado, admin, sysadmin):
     ?modo=lista    [&seccion=&q=&alerta=bajo|alto|agotado]
     ?modo=kardex   [&variante=&tipo=&usuario=&seccion=&desde=&hasta=]
+    ?modo=codigo&q=…   (¿ya existe ese código de barras?)
     ?modo=secciones | ?modo=proveedores
 POST (solo admin y sysadmin), JSON {"accion": ...}:
     crear | llegada | salida | ajuste | proveedor
@@ -177,6 +178,27 @@ def _buscar(qs, u):
     return _leer("inv_catalogo", params)
 
 
+COLS_CODIGO = "id,nombre,marca,color,talla,cantidad,codigo_barras,activo,seccion"
+
+
+def _coincidencias_codigo(codigo):
+    """Variantes (activas o no) cuyo código de barras es exactamente `codigo`, sin distinguir mayúsculas.
+    ilike trata «_» y «%» como comodines, por eso la igualdad se confirma en Python."""
+    patron = codigo.replace("\\", "\\\\")
+    candidatas = _leer("inv_catalogo", [("select", COLS_CODIGO), ("codigo_barras", f"ilike.{patron}"), ("limit", "5")])
+    return [p for p in candidatas if str(p.get("codigo_barras") or "").lower() == codigo.lower()]
+
+
+def _por_codigo(qs):
+    """GET ?modo=codigo&q=… → variante que ya usa ese código (lista vacía si está libre). Lo usa «Nuevo producto»."""
+    codigo = _texto((qs.get("q", [""])[0] or ""), "el código de barras", 32, obligatorio=False)
+    return _coincidencias_codigo(codigo) if codigo else []
+
+
+def _descripcion(p):
+    return " - ".join(x for x in (p.get("nombre"), p.get("marca"), p.get("color"), p.get("talla")) if x)
+
+
 def _lista(qs, u):
     q = re.sub(r"[^\w\s.\-]", "", (qs.get("q", [""])[0] or ""))[:60].strip()
     cols = COLS_LISTA + (",precio_costo" if c.es_admin(u) else "")
@@ -310,6 +332,19 @@ def _crear(d, u):
         "descripcion": _texto(prod.get("descripcion"), "la descripción", 1000, obligatorio=False),
     }
     limpias = [_variante(v, i) for i, v in enumerate(variantes, 1)]
+    # Códigos de barras: ni repetidos entre sí ni ya registrados (evita productos duplicados). Si el servidor de
+    # base de datos tuviera su propia restricción de unicidad, sigue siendo la última barrera.
+    vistos = {}
+    for i, v in enumerate(limpias, 1):
+        cod = v.get("codigo_barras")
+        if not cod:
+            continue
+        if cod.lower() in vistos:
+            raise c.ErrorPeticion(400, f"Variante {i}: el código de barras {cod} está repetido en la variante {vistos[cod.lower()]}.")
+        vistos[cod.lower()] = i
+        for p in _coincidencias_codigo(cod)[:1]:
+            estado = " (está desactivado)" if p.get("activo") is False else ". Para sumar unidades usa «Registrar llegada»"
+            raise c.ErrorPeticion(409, f"Variante {i}: el código de barras {cod} ya existe en «{_descripcion(p)}»{estado}.")
     _rpc("inv_crear_producto", {"p_usuario": u["id"], "p_producto": limpio, "p_variantes": limpias})
     return "Producto registrado."
 
@@ -414,6 +449,8 @@ class handler(BaseHTTPRequestHandler):
                 return self._recortado(_lista(qs, u), LIMITE_LISTA)
             if modo == "kardex":
                 return self._recortado(_kardex(qs, u), LIMITE_KARDEX)
+            if modo == "codigo":
+                return self._ok(data=_por_codigo(qs))
             if modo == "secciones":
                 return self._ok(data=_leer("inv_secciones", [("select", "id,nombre"), ("activo", "is.true"), ("order", "id")]))
             if modo == "proveedores":
