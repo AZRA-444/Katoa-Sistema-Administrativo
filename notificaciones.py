@@ -220,7 +220,7 @@ def _push_solicitud(u, d, res):
         return
     accion = aut.ACCIONES.get(d.get("accion_autorizar"), "una operación")
     _push.notificar("Solicitud de autorización", f"{u.get('nombre') or u.get('email')} pide autorización: {accion}.",
-                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente")
+                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente", urgente=True)
 
 
 def _push_respuesta(i, aprobada):

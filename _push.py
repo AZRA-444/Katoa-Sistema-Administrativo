@@ -258,19 +258,27 @@ def _recorte(texto, maximo):
     return t if len(t) <= maximo else t[: maximo - 1].rstrip() + "…"
 
 
-def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuarios=None, roles=None, excluir=None, tag=None):
-    """Envía el aviso y devuelve cuántos dispositivos lo recibieron. No lanza nunca."""
+def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuarios=None, roles=None, excluir=None, tag=None,
+              urgente=False):
+    """Envía el aviso y devuelve cuántos dispositivos lo recibieron. No lanza nunca.
+
+    `urgente`: en PC el aviso no desaparece solo hasta que el usuario lo atienda (en celular lo decide el sistema)."""
     try:
         if not configurado() or not c.config_completa():
+            print("[push] no se envía: faltan VAPID_PRIVATE_KEY / VAPID_SUBJECT o la configuración de Supabase", file=sys.stderr)
             return 0
         if not (isinstance(url, str) and url.startswith("/") and not url.startswith("//")):
             url = "/"
         destinos = _destinos(usuarios, roles, excluir)
         if not destinos:
+            print("[push] sin destinatarios: ningún otro usuario ACTIVO tiene un dispositivo suscrito "
+                  "(el autor no recibe su propio aviso)", file=sys.stderr)
             return 0
         mensaje = {"titulo": _recorte(titulo, 80) or "Katoa", "cuerpo": _recorte(cuerpo, MAX_CUERPO), "url": url}
         if tag:
             mensaje["tag"] = str(tag)[:64]
+        if urgente:
+            mensaje["urgente"] = True
         cuerpo_json = json.dumps(mensaje, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
         ex = ThreadPoolExecutor(max_workers=HILOS)
@@ -286,6 +294,9 @@ def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuari
             elif estado == "caducada":
                 caducadas.append(int(futuros[f]["id"]))
         _borrar_ids(caducadas)
+        print(f"[push] «{mensaje['titulo']}»: {ok} enviados de {len(destinos)} dispositivos"
+              f"{f', {len(caducadas)} caducados eliminados' if caducadas else ''}"
+              f"{f', {len(destinos) - len(hechos)} sin respuesta a tiempo' if len(hechos) < len(destinos) else ''}", file=sys.stderr)
         return ok
     except Exception as e:  # noqa: BLE001 — a propósito: el push es accesorio y no debe romper la operación principal
         print(f"[push] notificar falló: {type(e).__name__}: {e}", file=sys.stderr)

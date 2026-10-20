@@ -127,6 +127,9 @@ self.addEventListener('push', (event) => {
     icon: ICONO,
     badge: INSIGNIA,
     lang: 'es',
+    silent: false,                    // pide al sistema que NO la silencie (el sonido final lo decide el dispositivo)
+    vibrate: [200, 100, 200],         // Android; iOS y PC lo ignoran
+    requireInteraction: datos.urgente === true, // PC: se queda en pantalla hasta que la atiendan
     data: { url: typeof datos.url === 'string' ? datos.url : '/' },
   };
   if (datos.tag) {          // misma etiqueta = reemplaza el aviso anterior en vez de apilarlo
