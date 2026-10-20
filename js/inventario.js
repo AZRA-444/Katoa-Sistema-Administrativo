@@ -28,10 +28,12 @@ const GRUPOS = [
     ['Identificación', [
         ['color', 'Color (opcional)', 'text'], ['talla_presentacion', 'Talla o presentación (opcional)', 'text'],
         ['codigo_barras', 'Código de barras (se genera si queda vacío)', 'text']]],
-    ['Precios en USD', [['precio_costo', 'Costo', 'dec'], ['precio_detal', 'Precio detal', 'dec']]],
-    ['Venta por volumen (opcional)', [
-        ['precio_mayor', 'Precio mayor', 'dec'], ['cantidad_mayor', 'Mayor desde (unidades)', 'int'],
-        ['precio_gran_mayor', 'Precio gran mayor', 'dec'], ['cantidad_gran_mayor', 'Gran mayor desde (unidades)', 'int']]],
+    // Costo y detal son obligatorios; mayor y gran mayor son opcionales, pero cada precio va con su cantidad «desde».
+    // Se muestran en pares (precio | cantidad) y siempre visibles.
+    ['Precios en USD', [
+        ['precio_costo', 'Costo', 'dec'], ['precio_detal', 'Precio detal', 'dec'],
+        ['precio_mayor', 'Precio mayor (opcional)', 'dec'], ['cantidad_mayor', 'Mayor desde (unidades)', 'int'],
+        ['precio_gran_mayor', 'Precio gran mayor (opcional)', 'dec'], ['cantidad_gran_mayor', 'Gran mayor desde (unidades)', 'int']]],
     ['Stock', [['cantidad_inicial', 'Stock inicial', 'int'], ['cantidad_minima', 'Mínimo', 'int'], ['cantidad_maxima', 'Máximo', 'int']]],
 ];
 const MAX_NUM = 1_000_000;
@@ -252,16 +254,20 @@ function filaVariante() {
             const props = { name: k, type: tipo === 'text' ? 'text' : 'number' };
             if (tipo === 'text') props.maxLength = k === 'codigo_barras' ? 32 : 40;
             else Object.assign(props, { min: k === 'precio_detal' ? 0.01 : 0, max: MAX_NUM, step: tipo === 'dec' ? '0.01' : '1', inputMode: tipo === 'dec' ? 'decimal' : 'numeric' });
-            if (k === 'precio_detal') props.required = true;
+            if (k === 'precio_costo' || k === 'precio_detal') Object.assign(props, { required: true, min: 0.01 });
             const f = campo(`v${n}${k}`, texto, props);
             $('input', f).setAttribute('data-k', k);
             cont.append(f);
         }
-        if (titulo.startsWith('Venta por volumen')) {          // opcional: plegado para no saturar el formulario
-            fs.append(el('details', { className: 'grupo' }, el('summary', { textContent: titulo }), cont));
-        } else {
-            fs.append(el('div', { className: 'grupo' }, el('h3', { className: 'grupo-t', textContent: titulo }), cont));
+        const grupo = el('div', { className: 'grupo' }, el('h3', { className: 'grupo-t', textContent: titulo }), cont);
+        if (titulo.startsWith('Precios')) {
+            cont.classList.add('precios-grid');
+            const aviso = el('p', { className: 'hint alerta', hidden: true });
+            aviso.setAttribute('aria-live', 'polite');
+            cont.addEventListener('input', () => avisarPrecios(fs, aviso));
+            grupo.append(aviso);
         }
+        fs.append(grupo);
     }
     const lotes = el('input', { id: `v${n}lotes`, type: 'checkbox' });
     lotes.setAttribute('data-k', 'maneja_lotes');
@@ -274,6 +280,15 @@ function filaVariante() {
         el('div', { className: 'check' }, lotes, el('label', { htmlFor: `v${n}lotes`, textContent: 'Maneja lotes y vencimiento' })), loteBox));
     fs.append(botonQuitar(fs, '#variantes', 'Variante'));
     return fs;
+}
+
+/** Aviso no bloqueante: un precio por debajo del costo suele ser un error de digitación. */
+function avisarPrecios(fs, nodo) {
+    const num = (k) => Number($(`[data-k="${k}"]`, fs).value) || 0, costo = num('precio_costo');
+    const bajos = [['precio_detal', 'detal'], ['precio_mayor', 'mayor'], ['precio_gran_mayor', 'gran mayor']]
+        .filter(([k]) => costo > 0 && num(k) > 0 && num(k) < costo).map(([, etq]) => etq);
+    nodo.hidden = !bajos.length;
+    nodo.textContent = bajos.length ? `Revisa: el precio ${bajos.join(' y ')} está por debajo del costo.` : '';
 }
 
 const etiquetaDe = (inp) => (inp.labels?.[0]?.textContent || inp.name || 'campo').replace(/\s*\(.*\)\s*$/, '');
@@ -296,6 +311,8 @@ async function guardarProducto(e) {
             if (!(v[cant] > 0)) delete v[cant];
             if ((precio in v) !== (cant in v)) return falla(err, `${pre}el precio ${etq} y su cantidad «desde» se indican juntos.`, inp(precio in v ? cant : precio));
         }
+        if (v.precio_mayor > v.precio_detal) return falla(err, `${pre}el precio mayor no puede superar al precio detal.`, inp('precio_mayor'));
+        if (v.precio_gran_mayor > (v.precio_mayor ?? v.precio_detal)) return falla(err, `${pre}el precio gran mayor no puede superar al precio ${v.precio_mayor ? 'mayor' : 'detal'}.`, inp('precio_gran_mayor'));
         if (v.cantidad_gran_mayor <= v.cantidad_mayor) return falla(err, `${pre}«gran mayor» debe empezar en una cantidad superior a la de «mayor».`, inp('cantidad_gran_mayor'));
         if (v.cantidad_minima > v.cantidad_maxima) return falla(err, `${pre}el mínimo no puede ser mayor que el máximo.`, inp('cantidad_minima'));
         if (v.maneja_lotes && v.cantidad_inicial > 0 && !(v.lote && v.vencimiento)) return falla(err, `${pre}indica lote y vencimiento del stock inicial.`, inp(v.lote ? 'vencimiento' : 'lote'));

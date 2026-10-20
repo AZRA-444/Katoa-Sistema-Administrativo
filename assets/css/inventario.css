@@ -158,6 +158,9 @@ body:has(dialog[open]) { overflow: hidden; }
 .grid-campos,
 .grupo-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .grupo-campos .ancho { grid-column: 1 / -1; }
+/* Precios: cada fila es un par (precio | cantidad «desde»); también en móvil para que se lean juntos */
+.precios-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hint.alerta { margin-top: 0; color: var(--danger); font-weight: 500; }
 
 .variantes { display: grid; gap: 12px; }
 

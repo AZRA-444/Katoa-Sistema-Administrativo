@@ -243,9 +243,12 @@ def _variante(v, n):
             t = _texto(v.get(clave), nombre, maximo, obligatorio=False)
             if t:
                 out[clave] = t
-        out["precio_detal"] = _numero(v.get("precio_detal"), "el precio detal")
-        if _hay(v.get("precio_costo")):
-            out["precio_costo"] = _numero(v.get("precio_costo"), "el precio de costo", 0)
+        # Precios (USD): costo y detal son obligatorios; mayor y gran mayor son opcionales, pero cada precio
+        # va siempre con su cantidad «desde» (facturación aplica la escala según esa cantidad).
+        for clave, nombre in (("precio_costo", "el precio de costo"), ("precio_detal", "el precio detal")):
+            if not _hay(v.get(clave)):
+                raise c.ErrorPeticion(400, f"indica {nombre}.")
+            out[clave] = _numero(v.get(clave), nombre)
         for precio, cant, etq in (("precio_mayor", "cantidad_mayor", "mayor"),
                                   ("precio_gran_mayor", "cantidad_gran_mayor", "gran mayor")):
             if _hay(v.get(precio)) != _hay(v.get(cant)):
@@ -256,6 +259,12 @@ def _variante(v, n):
         if "cantidad_mayor" in out and "cantidad_gran_mayor" in out \
                 and out["cantidad_gran_mayor"] <= out["cantidad_mayor"]:
             raise c.ErrorPeticion(400, "gran mayor debe empezar en una cantidad superior a la de mayor.")
+        # Coherencia: comprar más nunca puede salir más caro (detal ≥ mayor ≥ gran mayor).
+        if "precio_mayor" in out and out["precio_mayor"] > out["precio_detal"]:
+            raise c.ErrorPeticion(400, "el precio mayor no puede superar al precio detal.")
+        if "precio_gran_mayor" in out and out["precio_gran_mayor"] > out.get("precio_mayor", out["precio_detal"]):
+            raise c.ErrorPeticion(400, "el precio gran mayor no puede superar al precio "
+                                       + ("mayor." if "precio_mayor" in out else "detal."))
         for clave, nombre in (("cantidad_inicial", "la cantidad inicial"), ("cantidad_minima", "el mínimo"),
                               ("cantidad_maxima", "el máximo")):
             if _hay(v.get(clave)):
