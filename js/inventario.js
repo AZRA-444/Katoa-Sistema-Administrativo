@@ -283,10 +283,11 @@ function filaVariante() {
 }
 
 /** Aviso no bloqueante: un precio por debajo del costo suele ser un error de digitación. */
-function avisarPrecios(fs, nodo) {
-    const num = (k) => Number($(`[data-k="${k}"]`, fs).value) || 0, costo = num('precio_costo');
-    const bajos = [['precio_detal', 'detal'], ['precio_mayor', 'mayor'], ['precio_gran_mayor', 'gran mayor']]
-        .filter(([k]) => costo > 0 && num(k) > 0 && num(k) < costo).map(([, etq]) => etq);
+const CLAVES_NUEVO = { costo: 'precio_costo', detal: 'precio_detal', mayor: 'precio_mayor', gran: 'precio_gran_mayor' };
+function avisarPrecios(fs, nodo, k = CLAVES_NUEVO) {
+    const num = (clave) => Number($(`[data-k="${clave}"]`, fs).value) || 0, costo = num(k.costo);
+    const bajos = [[k.detal, 'detal'], [k.mayor, 'mayor'], [k.gran, 'gran mayor']]
+        .filter(([clave]) => costo > 0 && num(clave) > 0 && num(clave) < costo).map(([, etq]) => etq);
     nodo.hidden = !bajos.length;
     nodo.textContent = bajos.length ? `Revisa: el precio ${bajos.join(' y ')} está por debajo del costo.` : '';
 }
@@ -341,10 +342,28 @@ function filaLinea() {
     const lote = campo(`l${n}l`, 'Lote', { type: 'text', maxLength: 40 });
     const venc = campo(`l${n}v`, 'Vencimiento', { type: 'date' });
     lote.hidden = venc.hidden = true;
+    // Precios de venta de la variante: salen con los valores actuales y se cambia solo lo que haya variado.
+    // Detal obligatorio; mayor y gran mayor opcionales (cada precio con su cantidad «desde»). Se envían completos.
+    const precios = el('div', { className: 'grupo', hidden: true }, el('h3', { className: 'grupo-t', textContent: 'Precios de venta en USD (cambia solo lo que haya variado)' }));
+    const gridP = el('div', { className: 'grupo-campos precios-grid' });
+    const avisoP = el('p', { className: 'hint alerta', hidden: true });
+    avisoP.setAttribute('aria-live', 'polite');
+    const camposP = {};
+    for (const [k, texto, dec] of [['pd', 'Precio detal', 1], ['pm', 'Precio mayor (opcional)', 1], ['cm', 'Mayor desde (unidades)', 0],
+        ['pg', 'Precio gran mayor (opcional)', 1], ['cg', 'Gran mayor desde (unidades)', 0]]) {
+        const f = campo(`l${n}${k}`, texto, { type: 'number', min: 0, max: MAX_NUM, step: dec ? '0.01' : '1', inputMode: dec ? 'decimal' : 'numeric', disabled: true });
+        camposP[k] = $('input', f); camposP[k].setAttribute('data-k', k);
+        gridP.append(f);
+    }
+    precios.append(gridP, avisoP);
     const i = { p: $('input', prod), c: $('input', cant), k: $('input', costo), l: $('input', lote), v: $('input', venc) };
     for (const [k, x] of Object.entries(i)) x.setAttribute('data-k', k);
     i.p.setAttribute('list', dl.id);
     i.l.disabled = i.v.disabled = true;
+    const CLAVES_LLEGADA = { costo: 'k', detal: 'pd', mayor: 'pm', gran: 'pg' };
+    const alertar = () => avisarPrecios(fs, avisoP, CLAVES_LLEGADA);
+    gridP.addEventListener('input', alertar);
+    i.k.addEventListener('input', alertar);
 
     let timer, seq = 0, auto = '';
     const aplicar = (item) => {
@@ -356,6 +375,11 @@ function filaLinea() {
         hint.textContent = item ? [`Stock actual: ${item.cantidad}`, ult > 0 && `Último costo: ${usd(ult)}`, lotes && 'Maneja lotes y vencimiento'].filter(Boolean).join(' · ') : '';
         // autocompleta el costo, pero sin pisar uno que la persona escribió a mano
         if (item && ult > 0 && (!i.k.value || i.k.value === auto)) { auto = String(item.precio_costo); i.k.value = auto; }
+        // precios de venta: se cargan con los vigentes del producto elegido (y se vacían si se borra la selección)
+        precios.hidden = !item;
+        const actuales = { pd: item?.precio_detal, pm: item?.precio_mayor, cm: item?.cantidad_mayor, pg: item?.precio_gran_mayor, cg: item?.cantidad_gran_mayor };
+        for (const [k, x] of Object.entries(camposP)) { x.disabled = !item; x.value = Number(actuales[k]) > 0 ? String(actuales[k]) : ''; }
+        alertar();
         totalizar();
     };
     const buscar = async () => {
@@ -389,7 +413,7 @@ function filaLinea() {
         if (item) { aplicar(item); i.c.focus(); }
         else aviso('No se encontró un único producto con ese texto o código.', true);
     });
-    fs.append(el('div', { className: 'grupo-campos' }, prod, hint, cant, costo, lote, venc), dl, botonQuitar(fs, '#lineas', 'Producto', totalizar));
+    fs.append(el('div', { className: 'grupo-campos' }, prod, hint, cant, costo, lote, venc), precios, dl, botonQuitar(fs, '#lineas', 'Producto', totalizar));
     return fs;
 }
 
@@ -423,7 +447,19 @@ async function guardarLlegada(e) {
         if (!Number.isInteger(v.c) || v.c < 1) return falla(err, `${pre}la cantidad debe ser un entero mayor que cero.`, inp('c'));
         if (!(v.k > 0)) return falla(err, `${pre}indica el costo unitario.`, inp('k'));
         if (item.maneja_lotes && !(v.l && v.v)) return falla(err, `${pre}indica lote y vencimiento.`, inp(v.l ? 'v' : 'l'));
-        lineas.push({ variante_id: item.id, cantidad: v.c, costo: v.k, lote: v.l, vencimiento: v.v });
+        if (!(v.pd > 0)) return falla(err, `${pre}indica el precio detal.`, inp('pd'));
+        for (const [pk, ck, etq] of [['pm', 'cm', 'mayor'], ['pg', 'cg', 'gran mayor']]) {
+            if (!(v[pk] > 0)) delete v[pk];                  // un 0 o un campo vacío equivale a «sin precio por volumen»
+            if (!(v[ck] > 0)) delete v[ck];
+            if ((pk in v) !== (ck in v)) return falla(err, `${pre}el precio ${etq} y su cantidad «desde» se indican juntos.`, inp(pk in v ? ck : pk));
+        }
+        if (v.pm > v.pd) return falla(err, `${pre}el precio mayor no puede superar al precio detal.`, inp('pm'));
+        if (v.pg > (v.pm ?? v.pd)) return falla(err, `${pre}el precio gran mayor no puede superar al precio ${v.pm ? 'mayor' : 'detal'}.`, inp('pg'));
+        if (v.cg <= v.cm) return falla(err, `${pre}«gran mayor» debe empezar en una cantidad superior a la de «mayor».`, inp('cg'));
+        lineas.push({
+            variante_id: item.id, cantidad: v.c, costo: v.k, lote: v.l, vencimiento: v.v,
+            precio_detal: v.pd, precio_mayor: v.pm, cantidad_mayor: v.cm, precio_gran_mayor: v.pg, cantidad_gran_mayor: v.cg,
+        });
     }
     await enviar(e.target, err, async () => {
         const nuevo = $('#lNuevoProv').value.trim();

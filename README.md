@@ -55,6 +55,7 @@ Ejecuta **antes de desplegar** el código que las usa:
 | Archivo | Para qué |
 |---|---|
 | `sql/comisiones_pago_atomico.sql` | pago de comisiones atómico (ya existente) |
+| `sql/inventario_llegada_precios.sql` | `inv_llegada_con_precios`: registra la llegada y actualiza los precios de venta en una sola transacción (**ejecutar antes de desplegar** el cambio de llegada) |
 | `sql/autorizaciones_atomico.sql` | consume el código de autorización **dentro de la misma transacción** que anula/mueve stock |
 | `sql/egresos_borrado_logico.sql` | columnas `eliminado_en/por/motivo` y bloqueo del `DELETE` físico en `egresos` |
 | `sql/login_intentos.sql` | índices y purga diaria (pg_cron si está disponible) de `login_intentos` |

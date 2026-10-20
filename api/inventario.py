@@ -8,6 +8,8 @@ GET (encargado, admin, sysadmin):
     ?modo=secciones | ?modo=proveedores
 POST (solo admin y sysadmin), JSON {"accion": ...}:
     crear | llegada | salida | ajuste | proveedor
+    «llegada» admite, por línea, precio_detal / precio_mayor + cantidad_mayor / precio_gran_mayor + cantidad_gran_mayor
+    para actualizar los precios de venta de la variante en la misma transacción.
     «salida» y «ajuste» también los puede hacer cualquier otro rol con {"autorizacion": {"id", "codigo"}}
     (código de un solo uso que aprueba un admin; ver api/_autorizaciones.py).
 El stock solo cambia mediante funciones SQL (inv_mover): el kardex siempre queda registrado.
@@ -29,6 +31,7 @@ import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
 
 MAX_BODY = 64 * 1024
+CLAVES_PRECIO = ("precio_detal", "precio_mayor", "cantidad_mayor", "precio_gran_mayor", "cantidad_gran_mayor")
 LIMITE_LISTA = 200
 LIMITE_KARDEX = 300
 TIPOS = {"REGISTRO", "LLEGADA", "SALIDA_VENTA", "SALIDA_OTRO", "AJUSTE_ENTRADA",
@@ -231,6 +234,31 @@ def _hay(v):
     return v not in (None, "")
 
 
+def _precios_venta(v):
+    """Precio detal (obligatorio) + escalas mayor / gran mayor (opcionales, cada precio con su cantidad «desde»).
+    Lo usan «crear producto» y «llegada», para que ambas pantallas apliquen exactamente las mismas reglas."""
+    if not _hay(v.get("precio_detal")):
+        raise c.ErrorPeticion(400, "indica el precio detal.")
+    out = {"precio_detal": _numero(v.get("precio_detal"), "el precio detal")}
+    for precio, cant, etq in (("precio_mayor", "cantidad_mayor", "mayor"),
+                              ("precio_gran_mayor", "cantidad_gran_mayor", "gran mayor")):
+        if _hay(v.get(precio)) != _hay(v.get(cant)):
+            raise c.ErrorPeticion(400, f"el precio {etq} y su cantidad mínima deben indicarse juntos.")
+        if _hay(v.get(precio)):
+            out[precio] = _numero(v.get(precio), f"el precio {etq}")
+            out[cant] = _entero(v.get(cant), f"la cantidad {etq}", 1)
+    if "cantidad_mayor" in out and "cantidad_gran_mayor" in out \
+            and out["cantidad_gran_mayor"] <= out["cantidad_mayor"]:
+        raise c.ErrorPeticion(400, "gran mayor debe empezar en una cantidad superior a la de mayor.")
+    # Coherencia: comprar más nunca puede salir más caro (detal ≥ mayor ≥ gran mayor).
+    if "precio_mayor" in out and out["precio_mayor"] > out["precio_detal"]:
+        raise c.ErrorPeticion(400, "el precio mayor no puede superar al precio detal.")
+    if "precio_gran_mayor" in out and out["precio_gran_mayor"] > out.get("precio_mayor", out["precio_detal"]):
+        raise c.ErrorPeticion(400, "el precio gran mayor no puede superar al precio "
+                                   + ("mayor." if "precio_mayor" in out else "detal."))
+    return out
+
+
 def _variante(v, n):
     """Valida y normaliza una variante. Solo pasan las claves conocidas y con valores ya redondeados
     (antes se validaba pero se enviaba el JSON crudo a la función SQL)."""
@@ -243,28 +271,11 @@ def _variante(v, n):
             t = _texto(v.get(clave), nombre, maximo, obligatorio=False)
             if t:
                 out[clave] = t
-        # Precios (USD): costo y detal son obligatorios; mayor y gran mayor son opcionales, pero cada precio
-        # va siempre con su cantidad «desde» (facturación aplica la escala según esa cantidad).
-        for clave, nombre in (("precio_costo", "el precio de costo"), ("precio_detal", "el precio detal")):
-            if not _hay(v.get(clave)):
-                raise c.ErrorPeticion(400, f"indica {nombre}.")
-            out[clave] = _numero(v.get(clave), nombre)
-        for precio, cant, etq in (("precio_mayor", "cantidad_mayor", "mayor"),
-                                  ("precio_gran_mayor", "cantidad_gran_mayor", "gran mayor")):
-            if _hay(v.get(precio)) != _hay(v.get(cant)):
-                raise c.ErrorPeticion(400, f"el precio {etq} y su cantidad mínima deben indicarse juntos.")
-            if _hay(v.get(precio)):
-                out[precio] = _numero(v.get(precio), f"el precio {etq}")
-                out[cant] = _entero(v.get(cant), f"la cantidad {etq}", 1)
-        if "cantidad_mayor" in out and "cantidad_gran_mayor" in out \
-                and out["cantidad_gran_mayor"] <= out["cantidad_mayor"]:
-            raise c.ErrorPeticion(400, "gran mayor debe empezar en una cantidad superior a la de mayor.")
-        # Coherencia: comprar más nunca puede salir más caro (detal ≥ mayor ≥ gran mayor).
-        if "precio_mayor" in out and out["precio_mayor"] > out["precio_detal"]:
-            raise c.ErrorPeticion(400, "el precio mayor no puede superar al precio detal.")
-        if "precio_gran_mayor" in out and out["precio_gran_mayor"] > out.get("precio_mayor", out["precio_detal"]):
-            raise c.ErrorPeticion(400, "el precio gran mayor no puede superar al precio "
-                                       + ("mayor." if "precio_mayor" in out else "detal."))
+        # Precios (USD): costo y detal son obligatorios; mayor y gran mayor, opcionales (ver _precios_venta).
+        if not _hay(v.get("precio_costo")):
+            raise c.ErrorPeticion(400, "indica el precio de costo.")
+        out["precio_costo"] = _numero(v.get("precio_costo"), "el precio de costo")
+        out.update(_precios_venta(v))
         for clave, nombre in (("cantidad_inicial", "la cantidad inicial"), ("cantidad_minima", "el mínimo"),
                               ("cantidad_maxima", "el máximo")):
             if _hay(v.get(clave)):
@@ -308,17 +319,27 @@ def _llegada(d, u):
     if not isinstance(lineas, list) or not 1 <= len(lineas) <= 100:
         raise c.ErrorPeticion(400, "Agrega entre 1 y 100 líneas.")
     salida = []
-    for ln in lineas:
+    for n, ln in enumerate(lineas, 1):
         if not isinstance(ln, dict):
             raise c.ErrorPeticion(400, "Línea inválida.")
-        salida.append({
+        linea = {
             "variante_id": _entero(ln.get("variante_id"), "la variante"),
             "cantidad": _entero(ln.get("cantidad"), "la cantidad", 1, 100_000),
             "costo": _numero(ln.get("costo"), "el costo"),
             "lote": _texto(ln.get("lote"), "el lote", 40, obligatorio=False),
             "vencimiento": _fecha(ln["vencimiento"], "el vencimiento").isoformat() if _hay(ln.get("vencimiento")) else None,
-        })
-    _rpc("inv_llegada", {
+        }
+        # Precios de venta (opcional): si la línea trae alguno, se interpreta como el juego COMPLETO de precios de la
+        # variante (lo que falte de mayor / gran mayor se quita). Sin ninguno, la llegada no toca los precios.
+        if any(_hay(ln.get(k)) for k in CLAVES_PRECIO):
+            try:
+                linea.update(_precios_venta(ln))
+            except c.ErrorPeticion as e:
+                raise c.ErrorPeticion(e.status, f"Línea {n}: {e.mensaje[0].lower() + e.mensaje[1:]}") from None
+        salida.append(linea)
+    con_precios = any("precio_detal" in ln for ln in salida)
+    # La función SQL con precios aplica llegada + precios en una sola transacción (sql/inventario_llegada_precios.sql).
+    _rpc("inv_llegada_con_precios" if con_precios else "inv_llegada", {
         "p_usuario": u["id"],
         "p_proveedor": _entero(d.get("proveedor_id"), "el proveedor", 1, 10**9, False),
         "p_factura": _texto(d.get("numero_factura"), "el número de factura", 40, obligatorio=False),
