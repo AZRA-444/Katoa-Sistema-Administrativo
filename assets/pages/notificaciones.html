@@ -14,6 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="Katoa" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script src="/js/pwa.js" defer></script>
+    <script src="/js/push.js" defer></script>
     <title>Notificaciones — Katoa</title>
     <link rel="stylesheet" href="../vendor/fontawesome-6.5.1/css/all.min.css" />
     <link rel="stylesheet" href="../vendor/fonts-5.3.0/fonts.css" />
@@ -51,6 +52,21 @@
 
         <!-- RECIBIDAS (todos los roles) -->
         <section id="panRecibidas" role="tabpanel" aria-labelledby="tabRecibidas" class="adm-sec">
+            <!-- Avisos push en este dispositivo (lo gestiona js/push.js) -->
+            <div class="panel push-panel" id="pushPanel" hidden>
+                <div class="push-info">
+                    <i class="fas fa-bell" aria-hidden="true"></i>
+                    <div>
+                        <strong>Avisos en este dispositivo</strong>
+                        <p id="pushEstado" role="status"></p>
+                    </div>
+                </div>
+                <div class="push-acciones">
+                    <button type="button" class="btn btn-ghost" id="btnPushPrueba" hidden>Enviar prueba</button>
+                    <button type="button" class="btn btn-primary" id="btnPush">Activar avisos</button>
+                </div>
+            </div>
+
             <div class="panel">
                 <div class="tools">
                     <div class="field"><label for="fCategoria">Categoría</label>
