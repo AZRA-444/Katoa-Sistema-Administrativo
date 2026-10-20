@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#BE6E41" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/assets/img/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/img/icons/favicon-32.png" />
+    <meta name="application-name" content="Katoa" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Katoa" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script src="/js/pwa.js" defer></script>
+    <script src="/js/push.js" defer></script>
+    <title>Notificaciones — Katoa</title>
+    <link rel="stylesheet" href="../vendor/fontawesome-6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="../vendor/fonts-5.3.0/fonts.css" />
+    <link rel="stylesheet" href="../css/global.css" />
+    <link rel="stylesheet" href="../css/facturacion.css" />
+    <link rel="stylesheet" href="../css/inventario.css" />
+    <link rel="stylesheet" href="../css/administrador.css" />
+    <link rel="stylesheet" href="../css/notificaciones.css" />
+    <link rel="stylesheet" href="../css/autorizacion.css" />
+    <link rel="stylesheet" href="../css/responsive.css" />
+    <link rel="icon" href="../img/favicon.ico" />
+    <script src="../../js/utils/tablas-responsive.js" defer></script>
+    <script src="../../js/auth-guard.js"></script>
+    <script type="module" src="../../js/notificaciones.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <a class="back" href="../../index.html" aria-label="Volver al inicio"><i class="fas fa-arrow-left"></i></a>
+        <h1>Notificaciones</h1>
+        <button type="button" class="btn btn-ghost" id="btnLeerTodas" hidden><i class="fas fa-check-double"></i>
+            Marcar todas como leídas</button>
+    </header>
+
+    <main class="inv-wrap">
+        <!-- Las pestañas de publicación solo existen para admin y sysadmin (auth-guard quita el resto) -->
+        <nav class="tabs" role="tablist" aria-label="Sección">
+            <button type="button" class="tab" role="tab" id="tabRecibidas" aria-selected="true" aria-controls="panRecibidas">
+                Recibidas <span class="badge warn" id="nNoLeidas" hidden>0</span></button>
+            <button type="button" class="tab" role="tab" id="tabPublicar" aria-selected="false" aria-controls="panPublicar" data-admin-only>Publicar</button>
+            <button type="button" class="tab" role="tab" id="tabPublicadas" aria-selected="false" aria-controls="panPublicadas" data-admin-only>Publicadas</button>
+            <button type="button" class="tab" role="tab" id="tabAutorizaciones" aria-selected="false" aria-controls="panAutorizaciones" data-admin-only>
+                Autorizaciones <span class="badge warn" id="nAutPend" hidden>0</span></button>
+        </nav>
+
+        <!-- RECIBIDAS (todos los roles) -->
+        <section id="panRecibidas" role="tabpanel" aria-labelledby="tabRecibidas" class="adm-sec">
+            <!-- Avisos push en este dispositivo (lo gestiona js/push.js) -->
+            <div class="panel push-panel" id="pushPanel" hidden>
+                <div class="push-info">
+                    <i class="fas fa-bell" aria-hidden="true"></i>
+                    <div>
+                        <strong>Avisos en este dispositivo</strong>
+                        <p id="pushEstado" role="status"></p>
+                    </div>
+                </div>
+                <div class="push-acciones">
+                    <button type="button" class="btn btn-ghost" id="btnPushPrueba" hidden>Enviar prueba</button>
+                    <button type="button" class="btn btn-primary" id="btnPush">Activar avisos</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="tools">
+                    <div class="field"><label for="fCategoria">Categoría</label>
+                        <select id="fCategoria">
+                            <option value="">Todas</option>
+                            <option value="empresa">Empresa</option>
+                            <option value="sistema">Sistema</option>
+                        </select></div>
+                    <div class="field"><label for="fEstado">Mostrar</label>
+                        <select id="fEstado">
+                            <option value="">Todas</option>
+                            <option value="no-leidas">Solo no leídas</option>
+                        </select></div>
+                </div>
+                <h2>Bandeja <span class="count" id="contR">0</span> <span class="muted">Últimos 90 días</span></h2>
+                <div class="notif-lista" id="listaR" aria-live="polite"></div>
+                <div class="empty" id="vacioR" hidden><i class="fas fa-bell-slash"></i>
+                    <p id="vacioRTxt">No hay notificaciones.</p></div>
+            </div>
+        </section>
+
+        <!-- PUBLICAR (admin y sysadmin) -->
+        <section id="panPublicar" role="tabpanel" aria-labelledby="tabPublicar" class="adm-sec" hidden data-admin-only>
+            <div class="grid-2">
+                <form class="panel" id="formNotif" novalidate>
+                    <h2>Nueva notificación</h2>
+                    <p class="muted" id="notaCategoria">La recibirán todos los usuarios del sistema.</p>
+                    <div class="field"><label for="nCategoria">Categoría</label>
+                        <select id="nCategoria" required>
+                            <option value="empresa">Empresa — información de la empresa</option>
+                            <option value="sistema" data-sysadmin-only>Sistema — cambios en el sistema</option>
+                        </select></div>
+                    <div class="field"><label for="nTitulo">Título</label>
+                        <input id="nTitulo" maxlength="80" autocomplete="off" required /></div>
+                    <div class="field"><label for="nMensaje">Mensaje</label>
+                        <textarea id="nMensaje" rows="6" maxlength="1000" required></textarea>
+                        <small class="contador" id="nContador">0 / 1000</small></div>
+                    <p class="form-error" id="errNotif" role="alert" hidden></p>
+                    <div class="dlg-acts"><button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i>
+                            Publicar para todos</button></div>
+                </form>
+                <div class="panel">
+                    <h2>Vista previa</h2>
+                    <div class="notif-lista" id="vistaPrevia"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PUBLICADAS (admin y sysadmin) -->
+        <section id="panPublicadas" role="tabpanel" aria-labelledby="tabPublicadas" class="adm-sec" hidden data-admin-only>
+            <div class="panel">
+                <h2>Publicadas <span class="count" id="contP">0</span> <span class="muted" id="alcanceP"></span></h2>
+                <div class="table-wrap"><table class="tabla-resp">
+                    <thead><tr><th>Fecha</th><th>Categoría</th><th>Notificación</th><th>Publicó</th><th class="n">Leída por</th><th class="c">Acciones</th></tr></thead>
+                    <tbody id="filasP"></tbody></table></div>
+                <div class="empty" id="vacioP" hidden><i class="fas fa-bullhorn"></i><p>Aún no has publicado notificaciones.</p></div>
+            </div>
+        </section>
+
+        <!-- AUTORIZACIONES (admin y sysadmin): solicitudes de otros roles para operaciones que no pueden hacer solos -->
+        <section id="panAutorizaciones" role="tabpanel" aria-labelledby="tabAutorizaciones" class="adm-sec" hidden data-admin-only>
+            <div class="panel">
+                <h2>Por atender <span class="count" id="contAP">0</span></h2>
+                <p class="muted">Al aprobar se genera un código de 6 dígitos de un solo uso (vale 10 minutos). Se muestra una sola vez: díselo a quien lo pidió en persona o por WhatsApp.</p>
+                <div class="notif-lista" id="listaAP" aria-live="polite"></div>
+                <div class="empty" id="vacioAP" hidden><i class="fas fa-key"></i><p>No hay solicitudes pendientes.</p></div>
+            </div>
+            <div class="panel">
+                <h2>Últimos movimientos <span class="muted">Últimos 30 días</span></h2>
+                <div class="table-wrap"><table class="tabla-resp">
+                    <thead><tr><th>Fecha</th><th>Operación</th><th>Solicitó</th><th>Resolvió</th><th>Estado</th></tr></thead>
+                    <tbody id="filasAR"></tbody></table></div>
+                <div class="empty" id="vacioAR" hidden><i class="fas fa-clock-rotate-left"></i><p>Todavía no hay movimientos.</p></div>
+            </div>
+        </section>
+    </main>
+
+    <p id="aviso" class="aviso" role="status" hidden></p>
+
+    <dialog class="dlg dlg-sm" id="dlgConfirmar" aria-labelledby="hConf">
+        <form method="dialog" id="formConfirmar" novalidate>
+            <h2 id="hConf">¿Publicar para todos?</h2>
+            <p class="muted">Todos los usuarios verán este aviso en su bandeja. Podrás eliminarlo después, pero quien ya lo haya leído lo habrá visto.</p>
+            <div class="notif-lista" id="resumenConf"></div>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Revisar</button>
+                <button type="submit" class="btn btn-primary" id="btnConfirmar">Sí, publicar</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dlg dlg-sm" id="dlgCodigo" aria-labelledby="hCodigo">
+        <form method="dialog" novalidate>
+            <h2 id="hCodigo">Código de autorización</h2>
+            <p class="muted" id="codigoInfo"></p>
+            <p class="au-grande" id="codigoValor" aria-live="polite"></p>
+            <p class="muted" id="codigoVence"></p>
+            <div class="dlg-acts"><button type="submit" class="btn btn-primary">Listo, ya se lo dije</button></div>
+        </form>
+    </dialog>
+</body>
+
+</html>

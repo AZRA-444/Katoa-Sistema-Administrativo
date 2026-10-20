@@ -8,6 +8,9 @@
     },
     "api/reportes.py": {
       "maxDuration": 30
+    },
+    "api/notificaciones.py": {
+      "maxDuration": 20
     }
   },
   "headers": [

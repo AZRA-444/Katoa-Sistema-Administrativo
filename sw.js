@@ -109,3 +109,61 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(redPrimero(req, CACHE_APP));
   }
 });
+
+// ── Notificaciones push ─────────────────────────────────────────────────────
+// El servidor (api/_push.py) manda JSON: {titulo, cuerpo, url, tag?}. Nunca incluye datos sensibles ni códigos.
+const ICONO = '/assets/img/icons/icon-192.png';
+const INSIGNIA = '/assets/img/icons/badge-96.png';
+
+self.addEventListener('push', (event) => {
+  let datos = {};
+  try {
+    datos = event.data ? event.data.json() : {};
+  } catch (_) {
+    datos = { cuerpo: event.data ? event.data.text() : '' };
+  }
+  const opciones = {
+    body: String(datos.cuerpo || ''),
+    icon: ICONO,
+    badge: INSIGNIA,
+    lang: 'es',
+    data: { url: typeof datos.url === 'string' ? datos.url : '/' },
+  };
+  if (datos.tag) {          // misma etiqueta = reemplaza el aviso anterior en vez de apilarlo
+    opciones.tag = String(datos.tag);
+    opciones.renotify = true;
+  }
+  // iOS y Chrome exigen mostrar SIEMPRE una notificación al recibir un push
+  event.waitUntil(self.registration.showNotification(String(datos.titulo || 'Katoa'), opciones));
+});
+
+// Solo se navega dentro del propio sitio
+function destinoSeguro(valor) {
+  try {
+    const u = new URL(valor || '/', self.location.origin);
+    return u.origin === self.location.origin ? u : new URL('/', self.location.origin);
+  } catch (_) {
+    return new URL('/', self.location.origin);
+  }
+}
+
+// Páginas donde se puede reutilizar la ventana sin riesgo de perder trabajo a medias (p. ej. una venta)
+const PAGINAS_SEGURAS = ['/', '/index.html', '/assets/pages/notificaciones.html'];
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const destino = destinoSeguro(event.notification.data && event.notification.data.url);
+  event.waitUntil(
+    (async () => {
+      const ventanas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const v of ventanas) {
+        const actual = new URL(v.url);
+        if (actual.origin !== self.location.origin || !PAGINAS_SEGURAS.includes(actual.pathname)) continue;
+        await v.focus();
+        if (actual.href !== destino.href && 'navigate' in v) await v.navigate(destino.href).catch(() => { });
+        return;
+      }
+      await self.clients.openWindow(destino.href);
+    })()
+  );
+});

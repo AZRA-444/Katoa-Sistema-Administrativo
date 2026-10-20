@@ -129,3 +129,26 @@ Al cambiar JS/CSS/íconos en un despliegue no hace falta nada: JS y CSS se piden
 
 Cómo instalar: **Android/Chrome** → menú ⋮ → «Instalar aplicación». **iPhone/iPad (Safari)** → Compartir → «Añadir a pantalla de inicio».
 **PC (Chrome/Edge)** → ícono de instalar en la barra de direcciones, o menú → «Guardar y compartir» → «Instalar página como aplicación».
+
+## Notificaciones push
+
+Llegan como notificaciones nativas (también con la app cerrada) a Android, PC e iPhone/iPad (iOS 16.4+, **solo con la app instalada** en la pantalla de inicio).
+
+**Cuándo se envían:** al publicar una notificación (a todo el personal activo, menos al autor) · al solicitar una autorización (a admin y sysadmin) · al aprobar/rechazar una solicitud (al solicitante; **nunca** incluye el código).
+
+**Puesta en marcha (una sola vez):**
+1. `python scripts/generar_vapid.py` → copia `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT` (`mailto:tu-correo@dominio.com`) a las variables de entorno de Vercel. La clave privada es secreta.
+2. Ejecuta `sql/push_suscripciones.sql` en el SQL Editor de Supabase.
+3. Despliega. Cada usuario activa los avisos en **Notificaciones → Avisos en este dispositivo** (o con la tarjeta que aparece en el inicio).
+
+| Archivo | Para qué |
+|---|---|
+| `api/_push.py` | Cifrado Web Push (RFC 8291), firma VAPID (RFC 8292) y envío. Solo usa `cryptography` y `requests` |
+| `api/notificaciones.py` | `GET ?modo=push_clave`, `POST push_suscribir / push_quitar / push_probar` y los disparadores |
+| `sw.js` | Muestra el aviso y, al tocarlo, abre la app en la pantalla correcta |
+| `js/push.js` | Pide permiso, suscribe el dispositivo y lo mantiene al día; da de baja el dispositivo al cerrar sesión |
+| `tests/test_push.py` | Cifrado contra el vector oficial del RFC, firma VAPID y validación de endpoints |
+
+Notas: el `endpoint` que manda el navegador solo se acepta si es de Google, Mozilla, Microsoft o Apple (evita SSRF) y las suscripciones
+caducadas se borran solas. Si cambias `VAPID_PRIVATE_KEY`, los dispositivos se re-suscriben solos al abrir la app. El envío ocurre
+antes de responder (Vercel congela la función al terminar), con un tope de 7 s.
