@@ -185,6 +185,10 @@ def guardar(u, d, user_agent=""):
     if r.status_code == 200 and r.json():
         _borrar_ids([int(f["id"]) for f in r.json()])
 
+    # Confirma con la base cuántos dispositivos tiene registrados este usuario (el panel lo muestra)
+    r = _rest("GET", params={"select": "id", "usuario_id": f"eq.{u['id']}", "limit": "50"})
+    return len(r.json()) if r.status_code == 200 else None
+
 
 def quitar(u, d):
     endpoint = d.get("endpoint")

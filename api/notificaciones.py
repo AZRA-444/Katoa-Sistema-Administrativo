@@ -41,7 +41,29 @@ import requests
 sys.path.insert(0, os.path.dirname(__file__))
 import _autorizaciones as aut  # noqa: E402
 import _comun as c  # noqa: E402
-import _push  # noqa: E402
+try:
+    import _push  # noqa: E402
+except Exception as _e:  # noqa: BLE001 — p. ej. falta `cryptography`: el push se desactiva, lo demás sigue funcionando
+    print(f"[notificaciones] push desactivado: {type(_e).__name__}: {_e}", file=sys.stderr)
+
+    class _push:  # noqa: N801 — sustituto inerte con la misma interfaz
+        @staticmethod
+        def notificar(*a, **k):
+            return 0
+
+        @staticmethod
+        def configurado():
+            return False
+
+        @staticmethod
+        def clave_publica():
+            return None
+
+        @staticmethod
+        def guardar(*a, **k):
+            raise c.ErrorPeticion(503, "Los avisos push no están disponibles en el servidor.")
+
+        quitar = guardar
 
 MAX_BODY = 8 * 1024
 DIAS_VISIBLES = 90          # la bandeja muestra lo publicado en este plazo
@@ -198,7 +220,7 @@ def _push_solicitud(u, d, res):
         return
     accion = aut.ACCIONES.get(d.get("accion_autorizar"), "una operación")
     _push.notificar("Solicitud de autorización", f"{u.get('nombre') or u.get('email')} pide autorización: {accion}.",
-                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente")
+                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente", urgente=True)
 
 
 def _push_respuesta(i, aprobada):
@@ -338,8 +360,7 @@ class handler(BaseHTTPRequestHandler):
                 _push_respuesta(_id(d), False)
                 self._ok(message="Solicitud rechazada.")
             elif accion == "push_suscribir":
-                _push.guardar(u, d, self.headers.get("User-Agent", ""))
-                self._ok()
+                self._ok(dispositivos=_push.guardar(u, d, self.headers.get("User-Agent", "")))
             elif accion == "push_quitar":
                 _push.quitar(u, d)
                 self._ok()
