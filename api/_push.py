@@ -262,11 +262,14 @@ def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuari
     """Envía el aviso y devuelve cuántos dispositivos lo recibieron. No lanza nunca."""
     try:
         if not configurado() or not c.config_completa():
+            print("[push] no se envía: faltan VAPID_PRIVATE_KEY / VAPID_SUBJECT o la configuración de Supabase", file=sys.stderr)
             return 0
         if not (isinstance(url, str) and url.startswith("/") and not url.startswith("//")):
             url = "/"
         destinos = _destinos(usuarios, roles, excluir)
         if not destinos:
+            print("[push] sin destinatarios: ningún otro usuario ACTIVO tiene un dispositivo suscrito "
+                  "(el autor no recibe su propio aviso)", file=sys.stderr)
             return 0
         mensaje = {"titulo": _recorte(titulo, 80) or "Katoa", "cuerpo": _recorte(cuerpo, MAX_CUERPO), "url": url}
         if tag:
@@ -286,6 +289,9 @@ def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuari
             elif estado == "caducada":
                 caducadas.append(int(futuros[f]["id"]))
         _borrar_ids(caducadas)
+        print(f"[push] «{mensaje['titulo']}»: {ok} enviados de {len(destinos)} dispositivos"
+              f"{f', {len(caducadas)} caducados eliminados' if caducadas else ''}"
+              f"{f', {len(destinos) - len(hechos)} sin respuesta a tiempo' if len(hechos) < len(destinos) else ''}", file=sys.stderr)
         return ok
     except Exception as e:  # noqa: BLE001 — a propósito: el push es accesorio y no debe romper la operación principal
         print(f"[push] notificar falló: {type(e).__name__}: {e}", file=sys.stderr)
