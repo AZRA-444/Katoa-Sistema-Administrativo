@@ -98,3 +98,66 @@ body::before {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
   .fade-in-up, .stagger > * { opacity: 1; transform: none; }
 }
+
+/* ---------- PWA ---------- */
+/* Instalada como app: sin «tirar para recargar» que borre un formulario a medias */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior-y: contain; }
+}
+
+/* Pantalla sin conexión */
+.offline {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  text-align: center;
+}
+.offline-icono { font-size: 2.6rem; color: var(--terracota); }
+.offline h1 { font-size: 2.2rem; }
+.offline p { max-width: 34ch; color: var(--muted); }
+.btn-offline {
+  margin-top: 8px;
+  padding: .75rem 1.6rem;
+  border-radius: 10px;
+  background: var(--terracota-700, var(--terracota));
+  color: #fff;
+  font: 600 1rem var(--font-body);
+  text-decoration: none;
+}
+
+/* Tarjeta de instalar / actualizar */
+.pwa-card {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(92vw, 420px);
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+}
+.pwa-card strong { font-family: var(--font-display); font-size: 1.2rem; font-weight: 600; }
+.pwa-card p { font-size: .9rem; color: var(--muted); }
+.pwa-card-acciones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.pwa-btn {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--malva);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 .9rem var(--font-body);
+  cursor: pointer;
+}
+.pwa-btn-primario { background: var(--terracota-700, var(--terracota)); border-color: transparent; color: #fff; font-weight: 600; }

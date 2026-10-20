@@ -111,3 +111,21 @@ Prueba SQL de las autorizaciones atómicas (opcional, requiere un Postgres local
 `/assets/vendor/*` es inmutable (1 año; la ruta lleva la versión). JS y CSS no llevan huella en el nombre, por eso solo se
 cachean 60 s con revalidación: un caché largo podría mezclar módulos de dos despliegues y romper los `import`. Si luego
 añades huellas en los nombres, puedes alargarlo.
+
+## PWA (instalable en celular y PC)
+
+La app se puede instalar desde el navegador (requiere HTTPS; Vercel ya lo da, y `localhost` sirve para probar).
+
+| Archivo | Para qué |
+|---|---|
+| `manifest.webmanifest` | Nombre, colores, íconos y accesos directos (Nueva venta, Pedidos, Inventario) |
+| `sw.js` | Service worker: guarda solo estáticos; **`/api/*` y las páginas nunca se guardan** |
+| `offline.html` | Pantalla que se muestra sin internet |
+| `js/pwa.js` | Registra el SW, avisa de versiones nuevas y muestra la invitación a instalar (Android/PC y guía para iOS) |
+| `assets/img/icons/` | Íconos 192/512 (`any` y `maskable`), `apple-touch-icon` 180 y favicons |
+
+Al cambiar JS/CSS/íconos en un despliegue no hace falta nada: JS y CSS se piden primero a la red. Si cambias la lista
+`PRECACHE` o quieres forzar la limpieza de cachés, sube `VERSION` en `sw.js`.
+
+Cómo instalar: **Android/Chrome** → menú ⋮ → «Instalar aplicación». **iPhone/iPad (Safari)** → Compartir → «Añadir a pantalla de inicio».
+**PC (Chrome/Edge)** → ícono de instalar en la barra de direcciones, o menú → «Guardar y compartir» → «Instalar página como aplicación».
