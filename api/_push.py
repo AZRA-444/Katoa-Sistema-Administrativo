@@ -52,6 +52,9 @@ UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 HOSTS_PUSH = {"fcm.googleapis.com"}
 SUFIJOS_PUSH = (".push.services.mozilla.com", ".notify.windows.com", ".push.apple.com")
 
+# Solo para pruebas con un único usuario: el autor también recibe sus propios avisos
+INCLUIR_AUTOR = os.environ.get("PUSH_INCLUIR_AUTOR", "").strip().lower() in ("1", "true", "si", "sí")
+
 _SUJETO = os.environ.get("VAPID_SUBJECT", "").strip()
 _PRIVADA_RAW = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
 _clave_cache = {}
@@ -199,32 +202,40 @@ def _borrar_ids(ids):
 
 
 def _destinos(usuarios=None, roles=None, excluir=None):
-    """Suscripciones de usuarios ACTIVOS (filtradas por ids y/o roles)."""
+    """-> (suscripciones a las que enviar, diagnóstico). Solo usuarios ACTIVOS, filtrados por ids y/o roles."""
+    diag = {"en_base": 0, "activos": 0, "tras_excluir": 0}
     params = {"select": "id,usuario_id,endpoint,p256dh,auth", "limit": "1000"}
     if usuarios is not None:
         ids = [x for x in usuarios if isinstance(x, str) and UUID_RE.match(x)]
         if not ids:
-            return []
+            return [], diag
         params["usuario_id"] = f"in.({','.join(ids)})"
     r = _rest("GET", params=params)
     if r.status_code != 200:
-        print(f"[push] destinos {r.status_code}: {r.text[:200]}", file=sys.stderr)
-        return []
+        print(f"[push] destinos {r.status_code}: {r.text[:200]} (¿existe la tabla push_suscripciones? sql/push_suscripciones.sql)",
+              file=sys.stderr)
+        return [], diag
     subs = r.json()
+    diag["en_base"] = len(subs)
     uids = sorted({s["usuario_id"] for s in subs if UUID_RE.match(str(s["usuario_id"]))})[:MAX_USUARIOS_ENVIO]
     if not uids:
-        return []
-    filtro = {"select": "id", "id": f"in.({','.join(uids)})", "activo": "is.true"}
-    if roles:
-        filtro["rol"] = f"in.({','.join(roles)})"
-    r = _rest("GET", "perfiles", params=filtro)
+        return [], diag
+    # Los roles NO se filtran en SQL: en la base hay valores como «sysAdmin» y el filtro `in.` distingue mayúsculas.
+    r = _rest("GET", "perfiles", params={"select": "id,rol", "id": f"in.({','.join(uids)})", "activo": "is.true"})
     if r.status_code != 200:
         print(f"[push] perfiles {r.status_code}: {r.text[:200]}", file=sys.stderr)
-        return []
-    activos = {str(f["id"]) for f in r.json()}
-    if excluir:
+        return [], diag
+    perfiles = r.json()
+    if roles:
+        validos = {str(x).lower() for x in roles}
+        perfiles = [f for f in perfiles if str(f.get("rol") or "").lower() in validos]
+    activos = {str(f["id"]) for f in perfiles}
+    diag["activos"] = sum(1 for s in subs if str(s["usuario_id"]) in activos)
+    if excluir and not INCLUIR_AUTOR:
         activos.discard(str(excluir))
-    return [s for s in subs if str(s["usuario_id"]) in activos]
+    destinos = [s for s in subs if str(s["usuario_id"]) in activos]
+    diag["tras_excluir"] = len(destinos)
+    return destinos, diag
 
 
 # ── Envío ───────────────────────────────────────────────────────────────────
@@ -258,22 +269,29 @@ def _recorte(texto, maximo):
     return t if len(t) <= maximo else t[: maximo - 1].rstrip() + "…"
 
 
-def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuarios=None, roles=None, excluir=None, tag=None):
-    """Envía el aviso y devuelve cuántos dispositivos lo recibieron. No lanza nunca."""
+def notificar(titulo, cuerpo, url="/assets/pages/notificaciones.html", *, usuarios=None, roles=None, excluir=None, tag=None,
+              urgente=False):
+    """Envía el aviso y devuelve cuántos dispositivos lo recibieron. No lanza nunca.
+
+    `urgente`: en PC el aviso no desaparece solo hasta que el usuario lo atienda (en celular lo decide el sistema)."""
     try:
         if not configurado() or not c.config_completa():
             print("[push] no se envía: faltan VAPID_PRIVATE_KEY / VAPID_SUBJECT o la configuración de Supabase", file=sys.stderr)
             return 0
         if not (isinstance(url, str) and url.startswith("/") and not url.startswith("//")):
             url = "/"
-        destinos = _destinos(usuarios, roles, excluir)
+        destinos, diag = _destinos(usuarios, roles, excluir)
         if not destinos:
-            print("[push] sin destinatarios: ningún otro usuario ACTIVO tiene un dispositivo suscrito "
-                  "(el autor no recibe su propio aviso)", file=sys.stderr)
+            print(f"[push] sin destinatarios · suscripciones en la base: {diag['en_base']} · de usuarios activos"
+                  f"{' con el rol pedido' if roles else ''}: {diag['activos']} · tras excluir al autor: {diag['tras_excluir']}"
+                  " (el autor no recibe su propio aviso; para probar con un solo usuario: PUSH_INCLUIR_AUTOR=true)",
+                  file=sys.stderr)
             return 0
         mensaje = {"titulo": _recorte(titulo, 80) or "Katoa", "cuerpo": _recorte(cuerpo, MAX_CUERPO), "url": url}
         if tag:
             mensaje["tag"] = str(tag)[:64]
+        if urgente:
+            mensaje["urgente"] = True
         cuerpo_json = json.dumps(mensaje, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
         ex = ThreadPoolExecutor(max_workers=HILOS)
