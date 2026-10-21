@@ -103,11 +103,17 @@ def leyenda(id_factura, nombre=None):
 
 
 def enviar_pdf(telefono, id_factura, pdf, nombre=None, timeout=None):
-    """Manda el PDF por WhatsApp. Devuelve ENVIADO | SIN_WHATSAPP | NO_DISPONIBLE | NO_CONFIGURADO.
+    """Manda la nota de entrega por WhatsApp. Devuelve ENVIADO | SIN_WHATSAPP | NO_DISPONIBLE | NO_CONFIGURADO."""
+    return enviar_documento(telefono, f"{DOC_ARCHIVO}-{id_factura}.pdf", pdf, leyenda(id_factura, nombre), timeout)
+
+
+def enviar_documento(telefono, nombre_archivo, pdf, texto, timeout=None):
+    """Manda un PDF cualquiera por WhatsApp (nota de entrega, comprobante de egreso…).
+    Devuelve ENVIADO | SIN_WHATSAPP | NO_DISPONIBLE | NO_CONFIGURADO.
     `timeout` (s) acota la lectura según el tiempo restante de la función; sin él se usa TIMEOUT_BOT.
 
     Usa requests.post directo (sin reintentos automáticos): reintentar un POST
-    podría entregar la factura dos veces al cliente.
+    podría entregar el documento dos veces.
     """
     if not configurado():
         return NO_CONFIGURADO
@@ -117,9 +123,9 @@ def enviar_pdf(telefono, id_factura, pdf, nombre=None, timeout=None):
             f"{BOT_URL}/send-document",
             json={
                 "to": telefono,
-                "filename": f"{DOC_ARCHIVO}-{id_factura}.pdf",
+                "filename": nombre_archivo,
                 "pdf_base64": base64.b64encode(pdf).decode("ascii"),
-                "caption": leyenda(id_factura, nombre),
+                "caption": texto,
             },
             headers={"x-api-key": BOT_KEY},
             timeout=t_bot,

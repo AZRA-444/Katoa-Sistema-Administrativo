@@ -78,6 +78,7 @@
                     <div class="field grow"><label for="fBuscarE">Buscar</label>
                         <input id="fBuscarE" type="search" placeholder="Descripción o proveedor" autocomplete="off" /></div>
                     <div class="field"><label for="fCat">Categoría</label><select id="fCat"><option value="">Todas</option></select></div>
+                    <button type="button" class="btn btn-ghost" id="btnOpciones"><i class="fas fa-sliders"></i> Categorías y métodos</button>
                     <button type="button" class="btn btn-primary" id="btnEgreso"><i class="fas fa-plus"></i> Nuevo egreso</button>
                 </div>
                 <div class="kpis" id="kEgresos"></div>
@@ -86,7 +87,7 @@
             <div class="panel">
                 <h2>Egresos <span class="count" id="contE">0</span></h2>
                 <div class="table-wrap"><table>
-                    <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th class="n">Monto</th><th class="c">Acciones</th></tr></thead>
+                    <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Método</th><th class="n">Monto</th><th class="c">Acciones</th></tr></thead>
                     <tbody id="filasE"></tbody></table></div>
                 <div class="empty" id="vacioE" hidden><i class="fas fa-wallet"></i><p>No hay egresos con estos filtros.</p></div>
                 <button type="button" class="btn btn-ghost mas" id="masE" hidden>Mostrar más</button>
@@ -162,10 +163,63 @@
             <div class="field"><label for="eFecha">Fecha</label><input id="eFecha" type="date" required /></div>
             <div class="field"><label for="eCat">Categoría</label><select id="eCat" required></select></div>
             <div class="field"><label for="eDesc">Descripción</label><input id="eDesc" maxlength="150" required /></div>
-            <div class="field"><label for="eProv">Proveedor (opcional)</label><input id="eProv" maxlength="80" /></div>
+            <div class="field"><label for="eProv">Proveedor o beneficiario (opcional)</label><input id="eProv" maxlength="80" /></div>
             <div class="field"><label for="eMonto">Monto (USD)</label><input id="eMonto" type="number" min="0.01" step="0.01" inputmode="decimal" required /></div>
+            <div class="field"><label for="eMetodo">Método de pago</label>
+                <select id="eMetodo" required><option value="">Elige un método…</option></select></div>
+            <div class="field"><label for="eRef">Referencia <span class="muted" id="eRefNota">(opcional)</span></label>
+                <input id="eRef" maxlength="40" autocomplete="off" /></div>
+            <div class="field"><label for="eTel">WhatsApp del beneficiario (opcional)</label>
+                <input id="eTel" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="04121234567" /></div>
+            <label class="check"><input type="checkbox" id="eEnviar" disabled /> Enviar el comprobante por WhatsApp al guardar</label>
+            <button type="button" class="btn btn-ghost btn-sm enlace" id="btnOpc2"><i class="fas fa-sliders"></i> Agregar categorías o métodos de pago…</button>
             <p class="form-error" id="errEg" role="alert" hidden></p>
             <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Guardar egreso</button></div>
+        </form>
+    </dialog>
+    <dialog class="dlg" id="dlgOpc" aria-labelledby="hOpc">
+        <div class="opc-body">
+            <h2 id="hOpc">Categorías y métodos de pago</h2>
+            <p class="muted">Las de fábrica no se pueden quitar. Si quitas una personalizada, los egresos que ya la usan no cambian.</p>
+            <section class="opc-sec">
+                <h3>Categorías de egresos</h3>
+                <div class="chips" id="chipsCat"></div>
+                <form class="opc-add" data-tipo="categoria" novalidate>
+                    <input id="nCat" maxlength="40" autocomplete="off" placeholder="Nueva categoría" aria-label="Nueva categoría" />
+                    <button type="submit" class="btn btn-primary btn-sm">Agregar</button>
+                </form>
+            </section>
+            <section class="opc-sec">
+                <h3>Métodos de pago de egresos</h3>
+                <div class="chips" id="chipsMet"></div>
+                <form class="opc-add" data-tipo="metodo" novalidate>
+                    <input id="nMet" maxlength="40" autocomplete="off" placeholder="Nuevo método de pago" aria-label="Nuevo método de pago" />
+                    <button type="submit" class="btn btn-primary btn-sm">Agregar</button>
+                </form>
+            </section>
+            <p class="form-error" id="errOpc" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cerrar</button></div>
+        </div>
+    </dialog>
+    <dialog class="dlg dlg-sm" id="dlgComp" aria-labelledby="hComp">
+        <div class="opc-body">
+            <h2 id="hComp">Egreso registrado</h2>
+            <p id="compMsg"></p>
+            <div class="dlg-acts comp-acts">
+                <button type="button" class="btn btn-primary" id="compImprimir"><i class="fas fa-print"></i> Ver e imprimir comprobante</button>
+                <button type="button" class="btn btn-ghost" id="compWa"><i class="fab fa-whatsapp"></i> Enviar por WhatsApp</button>
+                <button type="button" class="btn btn-ghost" data-cerrar>Cerrar</button>
+            </div>
+        </div>
+    </dialog>
+    <dialog class="dlg dlg-sm" id="dlgWa" aria-labelledby="hWa">
+        <form id="formWa" novalidate>
+            <h2 id="hWa">Enviar comprobante</h2>
+            <p class="muted" id="waSub"></p>
+            <div class="field"><label for="wTel">WhatsApp del beneficiario</label>
+                <input id="wTel" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="04121234567" /></div>
+            <p class="form-error" id="errWa" role="alert" hidden></p>
+            <div class="dlg-acts"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary">Enviar</button></div>
         </form>
     </dialog>
     <dialog class="dlg dlg-sm" id="dlgPct" aria-labelledby="hPct">

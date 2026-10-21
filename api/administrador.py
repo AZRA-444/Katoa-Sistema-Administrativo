@@ -1,10 +1,12 @@
 """/api/administrador  (solo admin y sysadmin)
 
-GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias}
+GET  ?mes=AAAA-MM -> {ventas, egresos, costo_ventas, categorias, metodos, opciones}
+GET  ?modo=egr_pdf&id=N                          -> comprobante de egreso en PDF (ver api/_egresos.py)
 GET  ?modo=dev_lista | dev_buscar | dev_factura  -> devoluciones de productos (ver api/_devoluciones.py)
 GET  ?modo=com_resumen&mes=AAAA-MM               -> comisiones de vendedores (ver api/_comisiones.py)
 GET  ?modo=usr_lista                             -> usuarios y roles que se pueden asignar (ver api/_usuarios.py)
-POST {accion: "egreso_crear" | "egreso_eliminar" | "devolucion_registrar" | "com_config" | "com_pagar"
+POST {accion: "egreso_crear" | "egreso_eliminar" | "egreso_opcion_crear" | "egreso_opcion_quitar"
+              | "egreso_comprobante_enviar" | "devolucion_registrar" | "com_config" | "com_pagar"
               | "usuario_crear" | "usuario_estado" | "usuario_rol" | "usuario_clave", ...}
 
 Ventas: tabla `facturas` (columna de fecha `created_at`). «Venta» = total_usd, lo cobrado con el descuento por pago en
@@ -26,6 +28,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import _comisiones as com  # noqa: E402
 import _comun as c  # noqa: E402
 import _devoluciones as dev  # noqa: E402
+import _egresos as egr  # noqa: E402
 import _usuarios as usr  # noqa: E402
 import _ventas as ventas_def  # noqa: E402
 
@@ -35,8 +38,7 @@ MAX_VENTAS = 20000      # tope de facturas por mes; más que eso falla en vez de
 MAX_FILAS = 20000
 MES_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-CATEGORIAS = ["Alquiler", "Servicios", "Nómina", "Comisiones", "Publicidad", "Transporte",
-              "Impuestos", "Mantenimiento", "Otros"]
+CATEGORIAS = egr.CATEGORIAS_BASE   # de fábrica; las personalizadas salen de `egreso_opciones` (api/_egresos.py)
 COL_FECHA = "created_at"   # columna de fecha de `facturas` (la misma que usan Historial y Reportes)
 COLS_VENTA = ("id_factura,nombre,apellido,cedula,vendedor,subtotal_usd,total_usd,metodo_pago,pagos_combinados,"
               f"estado,{COL_FECHA}")
@@ -113,7 +115,7 @@ def _costo_ventas(ini, fin):
 
 
 def _egresos(ini, fin):
-    return _todas("egresos", [("select", "id,fecha,categoria,descripcion,proveedor,monto_usd"), ("order", "fecha.desc,id.desc"),
+    return _todas("egresos", [("select", egr.COLS_EGRESO), ("order", "fecha.desc,id.desc"),
                               ("eliminado_en", "is.null"), ("fecha", f"gte.{ini}"), ("fecha", f"lt.{fin}")], MAX_FILAS, "egresos")
 
 
@@ -125,25 +127,8 @@ def _texto(v, nombre, minimo, maximo):
 
 
 def _crear(d, u):
-    fecha = d.get("fecha")
-    try:
-        if not (isinstance(fecha, str) and FECHA_RE.match(fecha)):
-            raise ValueError
-        date.fromisoformat(fecha)
-    except ValueError:
-        raise c.ErrorPeticion(400, "Fecha inválida.") from None
-    if d.get("categoria") not in CATEGORIAS:
-        raise c.ErrorPeticion(400, "Categoría inválida.")
-    monto = d.get("monto_usd")
-    if isinstance(monto, bool) or not isinstance(monto, (int, float)) or not 0.01 <= monto <= 10_000_000:
-        raise c.ErrorPeticion(400, "Monto inválido.")
-    fila = {"fecha": fecha, "categoria": d["categoria"], "monto_usd": round(float(monto), 2), "creado_por": u["id"],
-            "descripcion": _texto(d.get("descripcion"), "La descripción", 3, 150),
-            "proveedor": (_texto(d.get("proveedor"), "El proveedor", 1, 80) if d.get("proveedor") else None)}
-    r = c._http.post(f"{c.SUPABASE_URL}/rest/v1/egresos", json=fila,
-                     headers=c._hdr_servicio({"Prefer": "return=minimal"}), timeout=c.TIMEOUT)
-    if r.status_code not in (200, 201, 204):
-        _fallo(r, "egresos")
+    """Valida y guarda el egreso (categoría y método pueden ser personalizados). Devuelve la fila guardada."""
+    return egr.crear(d, u)
 
 
 def _eliminar(d, u):
@@ -192,10 +177,28 @@ class handler(BaseHTTPRequestHandler):
     def _error(self, e):
         c.responder(self, e.status, {"status": "error", "message": e.mensaje})
 
+    def _pdf_egreso(self, qs):
+        """Comprobante de egreso: se abre en otra pestaña para verlo e imprimirlo (misma sesión por cookie)."""
+        try:
+            i = int((qs.get("id", [""])[0] or "").strip())
+        except ValueError:
+            raise c.ErrorPeticion(400, "Egreso inválido.") from None
+        doc, num = egr.pdf(i)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(doc)))
+        self.send_header("Content-Disposition", f'inline; filename="Comprobante-de-egreso-{num}.pdf"')
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(doc)
+
     def do_GET(self):
         try:
             u = _entrada(self)
             qs = parse_qs(urlparse(self.path).query)
+            if (qs.get("modo", [""])[0] or "") == "egr_pdf":
+                return self._pdf_egreso(qs)
             if (qs.get("modo", [""])[0] or "").startswith("usr_"):
                 return self._ok(**usr.leer(u))
             if (qs.get("modo", [""])[0] or "").startswith("com_"):
@@ -206,8 +209,9 @@ class handler(BaseHTTPRequestHandler):
             if not MES_RE.match(mes):
                 raise c.ErrorPeticion(400, "Mes inválido.")
             ini, fin = _rango(mes)
-            self._ok(ventas=_ventas(ini, fin), egresos=_egresos(ini, fin),
-                     costo_ventas=_costo_ventas(ini, fin), categorias=CATEGORIAS)
+            op = egr.opciones()
+            self._ok(ventas=_ventas(ini, fin), egresos=_egresos(ini, fin), costo_ventas=_costo_ventas(ini, fin),
+                     categorias=op["categorias"], metodos=op["metodos"], opciones=op["detalle"])
         except c.ErrorPeticion as e:
             self._error(e)
         except (requests.RequestException, RuntimeError) as e:
@@ -219,8 +223,18 @@ class handler(BaseHTTPRequestHandler):
             u = _entrada(self, escribe=True)
             d = c.leer_json(self, MAX_BODY)
             if d.get("accion") == "egreso_crear":
-                _crear(d, u)
-                self._ok(message="Egreso registrado.")
+                fila = _crear(d, u)
+                estado = None   # el egreso YA está guardado: un fallo del WhatsApp no lo deshace, solo se informa
+                if d.get("enviar_whatsapp"):
+                    estado = egr.enviar_comprobante(fila["id"], fila["beneficiario_telefono"])
+                self._ok(id=fila["id"], whatsapp=estado, message="Egreso registrado.")
+            elif d.get("accion") == "egreso_comprobante_enviar":
+                self._ok(whatsapp=egr.enviar_comprobante(d.get("id"), d.get("telefono")))
+            elif d.get("accion") == "egreso_opcion_crear":
+                self._ok(id=egr.crear_opcion(d, u), message="Opción agregada.")
+            elif d.get("accion") == "egreso_opcion_quitar":
+                egr.quitar_opcion(d, u)
+                self._ok(message="Opción quitada. Los egresos ya registrados no cambian.")
             elif d.get("accion") == "egreso_eliminar":
                 _eliminar(d, u)
                 self._ok(message="Egreso eliminado.")

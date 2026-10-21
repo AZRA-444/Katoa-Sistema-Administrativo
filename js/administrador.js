@@ -1,5 +1,5 @@
 import { usd } from './utils/format.js';
-import { apiJson as api } from './utils/api.js';
+import { apiJson as api, urlComprobanteEgreso } from './utils/api.js';
 
 const API = '/api/administrador';
 const TZ = 'America/Caracas';
@@ -8,6 +8,16 @@ const METODOS = {
     PM: 'Pago móvil', PVD: 'Punto débito', PVC: 'Punto crédito', ED: 'Efectivo $', EBS: 'Efectivo Bs',
     ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros', MIXTO: 'Pago combinado', CREDITO: 'Crédito (fiado)',
 };
+// Resultado del envío del comprobante por WhatsApp: [mensaje, es_error]
+const AVISOS_WA = {
+    enviado: ['El comprobante se envió por WhatsApp.', false],
+    sin_whatsapp: ['Ese número no tiene WhatsApp. Imprime el comprobante en formato carta.', true],
+    no_disponible: ['No se pudo enviar por WhatsApp en este momento. Inténtalo de nuevo o imprime el comprobante.', true],
+    no_configurado: ['El envío por WhatsApp no está configurado en el servidor.', true],
+};
+const REF_OBLIGATORIA = new Set(['Pago móvil', 'Transferencia', 'Zelle', 'Binance']);   // igual que api/_egresos.py
+const TEL_RE = /^\+?\d{10,15}$/;
+const normTel = (v) => String(v || '').replace(/[\s\-().]/g, '');
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, props = {}, ...hijos) => { const n = document.createElement(tag); Object.assign(n, props); n.append(...hijos); return n; };
 const nm = (m) => METODOS[m] || m || '—';
@@ -17,7 +27,7 @@ const fechaHora = (iso) => new Date(iso).toLocaleString('es-VE', { dateStyle: 's
 const fechaDia = (d) => d.split('-').reverse().join('/');
 const suma = (a, f) => a.reduce((t, x) => t + (Number(f(x)) || 0), 0);
 
-const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], verV: PAGINA, verE: PAGINA, com: null, pct: null, pago: null, usr: null };
+const S = { mes: hoy().slice(0, 7), ventas: [], egresos: [], costo: null, cats: [], metodos: [], opc: { categorias: [], metodos: [] }, comp: null, verV: PAGINA, verE: PAGINA, com: null, pct: null, pago: null, usr: null };
 let avisoT;
 
 function aviso(msg, error = false) {
@@ -130,16 +140,30 @@ function egresosFiltrados() {
     const q = $('#fBuscarE').value.trim().toLowerCase(), c = $('#fCat').value;
     return S.egresos.filter((e) => (!c || e.categoria === c) && (!q || `${e.descripcion} ${e.proveedor || ''}`.toLowerCase().includes(q)));
 }
-function filaEgreso(e, borrar) {
-    const tr = el('tr', {}, el('td', { textContent: fechaDia(e.fecha) }), el('td', {}, el('span', { className: 'pill', textContent: e.categoria })),
-        el('td', {}, e.descripcion, e.proveedor ? el('span', { className: 'sub', textContent: e.proveedor }) : ''),
-        el('td', { className: 'n', textContent: usd(e.monto_usd) }));
-    if (borrar) {
-        const b = el('button', { type: 'button', className: 'btn btn-ghost btn-mini', title: 'Eliminar egreso', ariaLabel: 'Eliminar egreso' }, el('i', { className: 'fas fa-trash' }));
-        b.dataset.id = e.id;
-        tr.append(el('td', { className: 'c' }, b));
+function btnEgreso(accion, icono, titulo, id) {
+    const b = el('button', { type: 'button', className: 'btn btn-ghost btn-mini', title: titulo, ariaLabel: titulo }, el('i', { className: icono }));
+    b.dataset.accion = accion; b.dataset.id = id;
+    return b;
+}
+/** Fila de egreso. `acciones`: en la pestaña Egresos añade método, comprobante (imprimir / WhatsApp) y eliminar. */
+function filaEgreso(e, acciones) {
+    const celdas = [el('td', { textContent: fechaDia(e.fecha) }), el('td', {}, el('span', { className: 'pill', textContent: e.categoria })),
+        el('td', {}, e.descripcion, e.proveedor ? el('span', { className: 'sub', textContent: e.proveedor }) : '')];
+    if (acciones) {
+        celdas.push(el('td', {}, e.metodo_pago ? el('span', { className: 'pill', textContent: e.metodo_pago }) : '—',
+            e.referencia ? el('span', { className: 'sub', textContent: `Ref. ${e.referencia}` }) : '',
+            e.comprobante_whatsapp === 'enviado'
+                ? el('span', { className: 'sub ok', title: e.comprobante_enviado_en ? `Enviado el ${fechaHora(e.comprobante_enviado_en)}` : '' },
+                    el('i', { className: 'fab fa-whatsapp' }), ' Comprobante enviado') : ''));
     }
-    return tr;
+    celdas.push(el('td', { className: 'n', textContent: usd(e.monto_usd) }));
+    if (acciones) {
+        celdas.push(el('td', { className: 'c acciones' },
+            btnEgreso('imprimir', 'fas fa-print', 'Ver e imprimir el comprobante', e.id), ' ',
+            btnEgreso('wa', 'fab fa-whatsapp', 'Enviar el comprobante por WhatsApp', e.id), ' ',
+            btnEgreso('borrar', 'fas fa-trash', 'Eliminar egreso', e.id)));
+    }
+    return el('tr', {}, ...celdas);
 }
 function pintarEgresos() {
     const e = egresosFiltrados(), total = suma(e, (x) => x.monto_usd), porCat = agrupar(e, (x) => x.categoria, (x) => x.monto_usd);
@@ -273,11 +297,12 @@ async function cargar() {
     cargarComisiones();
     try {
         const d = await api(`${API}?mes=${S.mes}`);
-        Object.assign(S, { ventas: d.ventas, egresos: d.egresos, costo: d.costo_ventas, cats: d.categorias, verV: PAGINA, verE: PAGINA });
+        Object.assign(S, { ventas: d.ventas, egresos: d.egresos, costo: d.costo_ventas, cats: d.categorias, metodos: d.metodos || [], opc: d.opciones || { categorias: [], metodos: [] }, verV: PAGINA, verE: PAGINA });
         const metodos = new Set(S.ventas.flatMap((f) => [f.metodo_pago, ...(f.pagos_combinados || []).map((x) => x.metodo)]));
         llenar($('#fMetodo'), Object.keys(METODOS).filter((m) => metodos.has(m)), nm);
         llenar($('#fVendedor'), [...new Set(S.ventas.map((f) => f.vendedor))].sort());
-        llenar($('#fCat'), S.cats);
+        // También las categorías quitadas que todavía tienen egresos este mes: si no, no se podrían filtrar.
+        llenar($('#fCat'), [...new Set([...S.cats, ...S.egresos.map((e) => e.categoria)])]);
         pintar();
     } catch (e) { aviso(e.message, true); }
 }
@@ -408,19 +433,134 @@ async function copiarClave() {
 }
 
 //--- NUEVO / ELIMINAR EGRESO ---//
+function actualizarRef() {
+    const obligatoria = REF_OBLIGATORIA.has($('#eMetodo').value);
+    $('#eRefNota').textContent = obligatoria ? '' : '(opcional)';   // si es obligatoria, ya lo marca el asterisco
+    $('#eRef').required = obligatoria;
+}
+function actualizarEnviar() {
+    const hay = $('#eTel').value.trim() !== '', caja = $('#eEnviar');
+    caja.disabled = !hay;
+    if (!hay) { caja.checked = false; delete caja.dataset.tocado; }
+    else if (!caja.dataset.tocado) { caja.checked = true; caja.dataset.tocado = '1'; }   // al escribir el número se marca solo
+}
+/** Rellena los selectores del formulario sin perder lo elegido (o eligiendo lo recién creado). */
+function llenarSelectoresEgreso(cat, metodo) {
+    const c0 = cat ?? $('#eCat').value, m0 = metodo ?? $('#eMetodo').value;
+    llenar($('#eCat'), S.cats); llenar($('#eMetodo'), S.metodos);
+    $('#eCat').value = S.cats.includes(c0) ? c0 : (S.cats[0] || '');
+    $('#eMetodo').value = S.metodos.includes(m0) ? m0 : '';
+    actualizarRef();
+}
+function abrirEgreso() {
+    $('#formEgreso').reset(); $('#errEg').hidden = true;
+    delete $('#eEnviar').dataset.tocado; actualizarEnviar();
+    llenarSelectoresEgreso(S.cats[0] || '', '');
+    $('#eFecha').value = hoy(); $('#dlgEgreso').showModal();
+}
 async function guardarEgreso(ev) {
     ev.preventDefault();
     const err = $('#errEg'), monto = Number($('#eMonto').value);
     const error = (m) => { err.textContent = m; err.hidden = false; };
+    err.hidden = true;
+    const metodo = $('#eMetodo').value, ref = $('#eRef').value.trim(), tel = normTel($('#eTel').value);
     if (!$('#eFecha').value) return error('Indica la fecha.');
     if ($('#eDesc').value.trim().length < 3) return error('Describe el egreso (mínimo 3 caracteres).');
     if (!(monto > 0)) return error('Indica un monto mayor que cero.');
+    if (!metodo) return error('Elige el método de pago.');
+    if (REF_OBLIGATORIA.has(metodo) && !ref) return error(`Con ${metodo} la referencia es obligatoria.`);
+    if (tel && !TEL_RE.test(tel)) return error('Teléfono inválido: solo números, de 10 a 15 dígitos.');
+    const btn = ev.submitter; if (btn) btn.disabled = true;   // evita guardar (y enviar el WhatsApp) dos veces
     try {
-        await api(API, { accion: 'egreso_crear', fecha: $('#eFecha').value, categoria: $('#eCat').value, descripcion: $('#eDesc').value, proveedor: $('#eProv').value, monto_usd: monto });
+        const d = await api(API, {
+            accion: 'egreso_crear', fecha: $('#eFecha').value, categoria: $('#eCat').value, descripcion: $('#eDesc').value,
+            proveedor: $('#eProv').value, monto_usd: monto, metodo_pago: metodo, referencia: ref, telefono: tel,
+            enviar_whatsapp: !!tel && $('#eEnviar').checked,
+        });
         $('#dlgEgreso').close();
-        aviso('Egreso registrado.');
         cargar();
+        abrirComprobante(d.id, d.whatsapp, tel);
     } catch (e) { error(e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+
+//--- COMPROBANTE (imprimir / WhatsApp) ---//
+function mensajeComp(texto, error = false) {
+    const p = $('#compMsg'); p.textContent = texto; p.classList.toggle('msg-error', error);
+}
+function abrirComprobante(id, estado, tel) {
+    S.comp = { id, tel };
+    const [msg, error] = estado ? (AVISOS_WA[estado] ?? AVISOS_WA.no_disponible) : ['', false];
+    mensajeComp(`El egreso quedó registrado. ${msg || 'Imprime el comprobante o envíalo por WhatsApp.'}`, error);
+    $('#dlgComp').showModal();
+}
+const imprimirComprobante = (id) => window.open(urlComprobanteEgreso(id), '_blank', 'noopener');
+function abrirWa(id, tel) {
+    S.comp = { id, tel };
+    const e = S.egresos.find((x) => x.id === id);
+    $('#waSub').textContent = e ? `${e.proveedor || e.descripcion} · ${usd(e.monto_usd)}` : `Egreso ${id}`;
+    $('#wTel').value = tel || ''; $('#errWa').hidden = true;
+    $('#dlgWa').showModal();
+}
+async function enviarWa(ev) {
+    ev.preventDefault();
+    const err = $('#errWa'), tel = normTel($('#wTel').value);
+    if (!TEL_RE.test(tel)) { err.textContent = 'Teléfono inválido: solo números, de 10 a 15 dígitos.'; err.hidden = false; return; }
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    try {
+        const d = await api(API, { accion: 'egreso_comprobante_enviar', id: S.comp.id, telefono: tel });
+        const [msg, error] = AVISOS_WA[d.whatsapp] ?? AVISOS_WA.no_disponible;
+        $('#dlgWa').close();
+        if ($('#dlgComp').open) mensajeComp(msg, error); else aviso(msg, error);
+        cargar();   // el egreso queda marcado como «Comprobante enviado» y con el teléfono guardado
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+    finally { if (btn) btn.disabled = false; }
+}
+
+//--- CATEGORÍAS Y MÉTODOS PERSONALIZADOS ---//
+const OPC = { categoria: { lista: 'categorias', chips: '#chipsCat', lista_s: 'cats' }, metodo: { lista: 'metodos', chips: '#chipsMet', lista_s: 'metodos' } };
+function pintarOpciones() {
+    for (const [tipo, cfg] of Object.entries(OPC)) {
+        $(cfg.chips).replaceChildren(...S.opc[cfg.lista].map((o) => {
+            const chip = el('span', { className: `chip${o.id ? ' propia' : ''}`, title: o.id ? 'Personalizada' : 'De fábrica' }, o.nombre);
+            if (o.id) {
+                const x = el('button', { type: 'button', className: 'chip-x', title: `Quitar ${o.nombre}`, ariaLabel: `Quitar ${o.nombre}` }, el('i', { className: 'fas fa-xmark' }));
+                x.dataset.id = o.id; x.dataset.tipo = tipo;
+                chip.append(x);
+            }
+            return chip;
+        }));
+    }
+}
+function abrirOpciones() { $('#errOpc').hidden = true; pintarOpciones(); $('#dlgOpc').showModal(); }
+async function agregarOpcion(ev) {
+    ev.preventDefault();
+    const form = ev.currentTarget, tipo = form.dataset.tipo, input = $('input', form), err = $('#errOpc');
+    const nombre = input.value.trim().replace(/\s+/g, ' ');
+    const error = (m) => { err.textContent = m; err.hidden = false; };
+    err.hidden = true;
+    if (nombre.length < 2) return error('Escribe un nombre de al menos 2 caracteres.');
+    const btn = ev.submitter; if (btn) btn.disabled = true;
+    try {
+        const d = await api(API, { accion: 'egreso_opcion_crear', tipo, nombre });
+        const cfg = OPC[tipo];
+        S.opc[cfg.lista].push({ nombre, id: d.id }); S[cfg.lista_s].push(nombre);
+        input.value = ''; pintarOpciones();
+        // Si el formulario de egreso está debajo, deja elegida la opción nueva.
+        llenarSelectoresEgreso(tipo === 'categoria' ? nombre : undefined, tipo === 'metodo' ? nombre : undefined);
+        aviso(`«${nombre}» agregada.`);
+    } catch (e) { error(e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+async function quitarOpcion(x) {
+    const cfg = OPC[x.dataset.tipo], id = Number(x.dataset.id), op = S.opc[cfg.lista].find((o) => o.id === id);
+    if (!op || !confirm(`¿Quitar «${op.nombre}»? Los egresos que ya la usan no cambian; solo dejará de ofrecerse al registrar nuevos.`)) return;
+    try {
+        await api(API, { accion: 'egreso_opcion_quitar', id });
+        S.opc[cfg.lista] = S.opc[cfg.lista].filter((o) => o.id !== id); S[cfg.lista_s] = S[cfg.lista_s].filter((n) => n !== op.nombre);
+        pintarOpciones(); llenarSelectoresEgreso();
+        $('#errOpc').hidden = true;
+    } catch (e) { $('#errOpc').textContent = e.message; $('#errOpc').hidden = false; }
 }
 
 (async () => {
@@ -462,21 +602,30 @@ async function guardarEgreso(ev) {
     $('#masV').addEventListener('click', () => { S.verV += PAGINA; pintarVentas(); });
     $('#masE').addEventListener('click', () => { S.verE += PAGINA; pintarEgresos(); });
 
-    $('#btnEgreso').addEventListener('click', () => {
-        $('#formEgreso').reset(); $('#errEg').hidden = true;
-        llenar($('#eCat'), S.cats); $('#eCat').value = S.cats[0] || '';
-        $('#eFecha').value = hoy(); $('#dlgEgreso').showModal();
-    });
+    $('#btnEgreso').addEventListener('click', abrirEgreso);
     $('#formEgreso').addEventListener('submit', guardarEgreso);
     $('#dlgEgreso [data-cerrar]').addEventListener('click', () => $('#dlgEgreso').close());
+    $('#eMetodo').addEventListener('change', actualizarRef);
+    $('#eTel').addEventListener('input', actualizarEnviar);
+    $('#btnOpciones').addEventListener('click', abrirOpciones);
+    $('#btnOpc2').addEventListener('click', abrirOpciones);
+    for (const f of document.querySelectorAll('.opc-add')) f.addEventListener('submit', agregarOpcion);
+    $('#dlgOpc').addEventListener('click', (ev) => { const x = ev.target.closest('.chip-x'); if (x) quitarOpcion(x); });
+    $('#compImprimir').addEventListener('click', () => S.comp && imprimirComprobante(S.comp.id));
+    $('#compWa').addEventListener('click', () => S.comp && abrirWa(S.comp.id, S.comp.tel));
+    $('#formWa').addEventListener('submit', enviarWa);
+    for (const d of ['#dlgOpc', '#dlgComp', '#dlgWa']) $(`${d} [data-cerrar]`).addEventListener('click', () => $(d).close());
     $('#filasE').addEventListener('click', async (ev) => {
-        const b = ev.target.closest('button[data-id]');
+        const b = ev.target.closest('button[data-accion]');
         if (!b) return;
+        const id = Number(b.dataset.id), e = S.egresos.find((x) => x.id === id);
+        if (b.dataset.accion === 'imprimir') return imprimirComprobante(id);
+        if (b.dataset.accion === 'wa') return abrirWa(id, e?.beneficiario_telefono || '');
         // Borrado lógico: el egreso deja de contarse pero queda registrado quién y cuándo lo eliminó.
         const motivo = prompt('¿Eliminar este egreso? Quedará registrado quién lo eliminó y cuándo.\n\nMotivo (opcional):', '');
         if (motivo === null) return;
-        try { await api(API, { accion: 'egreso_eliminar', id: Number(b.dataset.id), motivo: motivo.trim() }); aviso('Egreso eliminado (queda en el registro de auditoría).'); cargar(); }
-        catch (e) { aviso(e.message, true); }
+        try { await api(API, { accion: 'egreso_eliminar', id, motivo: motivo.trim() }); aviso('Egreso eliminado (queda en el registro de auditoría).'); cargar(); }
+        catch (err) { aviso(err.message, true); }
     });
 
     await cargar();

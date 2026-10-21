@@ -6,6 +6,7 @@ const ENDPOINTS = {
     clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
     factura: '/api/enviar-factura',
     facturaPdf: '/api/factura-pdf', // GET ?id= → PDF carta · POST {id_factura, telefono} → reenvía por WhatsApp
+    administrador: '/api/administrador', // GET ?modo=egr_pdf&id= → comprobante de egreso (PDF carta)
     sesion: '/api/sesion',
     tasas: '/api/tasas', // GET ?tipo=bcv|usdt → el servidor consulta la tasa OFICIAL del BCV / el dólar paralelo
 };
@@ -114,6 +115,9 @@ export const guardarCliente = (c) =>
 //--- FACTURA ---//
 /** URL del PDF (tamaño carta) de una factura ya guardada. Se abre en una pestaña nueva para imprimir. */
 export const urlPdfFactura = (id) => `${ENDPOINTS.facturaPdf}?id=${encodeURIComponent(id)}`;
+
+/** Comprobante de egreso en PDF (carta) para ver e imprimir. Solo admin y sysadmin. */
+export const urlComprobanteEgreso = (id) => `${ENDPOINTS.administrador}?modo=egr_pdf&id=${encodeURIComponent(id)}`;
 
 /** Reenvía el PDF por WhatsApp. Devuelve 'enviado' | 'sin_whatsapp' | 'no_disponible' | 'no_configurado'. */
 export async function reenviarWhatsapp(idFactura, telefono) {

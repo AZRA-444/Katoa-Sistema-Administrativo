@@ -53,3 +53,22 @@
 .acciones .btn-sm { padding: 4px 10px; font-size: .8rem; margin-right: 4px; }
 tr.inactivo td { color: var(--muted); }
 tr.inactivo td:first-child { text-decoration: line-through; }
+
+/* Egresos: categorías/métodos personalizados y comprobante */
+.check { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.check input { width: auto; margin: 0; }
+.check input:disabled + * { opacity: .6; }
+.btn.enlace { justify-self: start; padding-left: 0; }
+.opc-body { display: grid; gap: 14px; padding: clamp(16px, 3vw, 26px); }
+.opc-sec { display: grid; gap: 10px; }
+.opc-sec h3 { font: 600 .95rem var(--font-body); color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font: 500 .82rem var(--font-body); color: var(--muted); background: var(--crema-soft); border: 1px solid var(--line); border-radius: 99px; }
+.chip.propia { color: var(--terracota-800); background: var(--crema); border-color: transparent; }
+.chip-x { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; color: inherit; background: none; border: 0; border-radius: 99px; cursor: pointer; }
+.chip-x:hover, .chip-x:focus-visible { color: #fff; background: var(--danger); }
+.dlg .opc-add { display: flex; gap: 8px; padding: 0; }
+.dlg .opc-add input { flex: 1; min-width: 0; padding: 8px 12px; font: inherit; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.comp-acts { flex-wrap: wrap; }
+.sub.ok { color: #2F6B3B; }
+.msg-error { color: var(--danger); }
