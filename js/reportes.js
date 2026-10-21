@@ -367,6 +367,29 @@ function rSinMovimiento(d, admin) {
     return nodos;
 }
 
+/** Lista de precios para enseñar al cliente: solo precios de venta (el servidor nunca manda costos en este reporte). */
+function rListaPrecios(d) {
+    const s = d.resumen;
+    if (!s.productos) return [vacio('No hay productos con precio en esta sección.')];
+    const precio = (k) => (r) => (r[k] ? usd(r[k].precio) : '—');
+    const minimo = (k) => (r) => (r[k] ? `${entero(r[k].desde)} und.` : '—');
+    const cols = [
+        { t: 'Producto', titulo: true, v: (r) => r.producto,
+            f: (r) => el('div', {}, el('div', { className: 'prod-nombre', textContent: r.producto }), r.marca ? el('div', { className: 'muted', textContent: r.marca }) : '') },
+        { t: 'Precio detal', f: precio('detal'), v: (r) => r.detal.precio, n: true },
+        { t: 'Mínimo detal', f: minimo('detal'), v: (r) => r.detal.desde, n: true },
+        { t: 'Precio mayor', f: precio('mayor'), v: (r) => r.mayor?.precio ?? '', n: true },
+        { t: 'Mínimo mayor', f: minimo('mayor'), v: (r) => r.mayor?.desde ?? '', n: true },
+        { t: 'Precio gran mayor', f: precio('gran_mayor'), v: (r) => r.gran_mayor?.precio ?? '', n: true },
+        { t: 'Mínimo gran mayor', f: minimo('gran_mayor'), v: (r) => r.gran_mayor?.desde ?? '', n: true },
+    ];
+    const nodos = [nota('Precios en dólares (USD) por unidad. Cada precio aplica desde la cantidad mínima indicada; «—» significa que el producto no tiene ese precio.')];
+    for (const g of d.secciones) {
+        nodos.push(sec(g.seccion, plural(g.filas.length, 'producto', 'productos'), tabla(g.seccion, cols, g.filas)));
+    }
+    return nodos;
+}
+
 const REPORTES = [
     { id: 'cierre', nombre: 'Cierre de caja', icono: 'fa-cash-register', filtros: ['rango', 'vendedor'], rango: 'hoy', render: rCierre,
         sub: 'Lo cobrado en el período por método de pago y vendedor, listo para imprimir.' },
@@ -386,6 +409,8 @@ const REPORTES = [
         sub: 'Entradas y salidas de inventario por tipo de movimiento.' },
     { id: 'sin_movimiento', nombre: 'Sin ventas', icono: 'fa-hourglass-half', filtros: ['dias', 'seccion'], render: rSinMovimiento,
         sub: 'Productos con stock que no se han vendido: mercancía detenida.' },
+    { id: 'lista_precios', nombre: 'Lista de precios', icono: 'fa-tags', filtros: ['seccion'], render: rListaPrecios, paraCliente: true,
+        sub: 'Precios de venta al detal, al mayor y al gran mayor con su cantidad mínima, para mostrar al cliente (sin costos).' },
 ];
 const reporteActual = () => REPORTES.find((r) => r.id === state.tab);
 
@@ -487,6 +512,7 @@ function parametros(rep) {
 
 function describirPeriodo(rep, meta) {
     if (rep.id === 'inventario') return `Existencias al ${fechaISO(meta.generado.slice(0, 10))}`;
+    if (rep.id === 'lista_precios') return `Precios vigentes al ${fechaISO(meta.generado.slice(0, 10))}`;
     if (!meta.desde) return '';
     const sin = rep.id === 'sin_movimiento' ? `Sin ventas desde el ${fechaISO(meta.desde)} hasta el ${fechaISO(meta.hasta)}` : null;
     if (sin) return sin;
@@ -508,7 +534,9 @@ function pintarEncabezado(rep, meta) {
     $('#phTitulo').textContent = rep.nombre;
     $('#phPeriodo').textContent = meta ? describirPeriodo(rep, meta) : '';
     $('#phFiltros').textContent = describirFiltros(rep);
-    $('#phGenerado').textContent = meta ? `Generado el ${fechaHora(meta.generado)}${meta.usuario ? ' por ' + meta.usuario : ''}` : '';
+    // Un reporte para el cliente no lleva quién lo generó ni espacio de firmas.
+    $('#phGenerado').textContent = meta ? `Generado el ${fechaHora(meta.generado)}${meta.usuario && !rep.paraCliente ? ' por ' + meta.usuario : ''}` : '';
+    $('#panReporte').classList.toggle('para-cliente', !!rep.paraCliente);
 }
 
 async function cargar() {
