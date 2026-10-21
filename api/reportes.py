@@ -12,6 +12,8 @@ GET ?tipo=...  (encargado, admin, sysadmin). Los costos del inventario solo los 
     inventario      [seccion]                          existencias valoradas, reposición y sobrestock
     movimientos     [desde, hasta, seccion]            entradas y salidas del kardex por tipo
     sin_movimiento  [dias=7..365, seccion]             productos con stock y sin ventas en los últimos días
+    lista_precios   [seccion]                          lista de precios para el cliente: detal, mayor y gran mayor con su
+                                                       cantidad mínima. NUNCA trae costos (ni para el administrador)
     vendedores                                         nombres para el filtro
 
 Fechas AAAA-MM-DD en hora de Venezuela (UTC-4); «hasta» es inclusivo. Sin fechas: el día de hoy.
@@ -554,6 +556,35 @@ def calc_inventario(filas, admin):
     }
 
 
+def _escala(precio, desde):
+    """Una escala de precio solo existe si trae precio Y cantidad «desde» (como en facturación)."""
+    p, q = _d(precio), _d(desde)
+    if p > 0 and q > 0:
+        return {"precio": _f(p), "desde": int(q) if q == q.to_integral() else _f(q)}
+    return None
+
+
+def calc_lista_precios(filas):
+    """Lista de precios para mostrar al cliente. Solo precios de venta: no recibe ni devuelve costos."""
+    grupos = defaultdict(list)
+    for p in filas:
+        precio_detal = _d(p.get("precio_detal"))
+        if precio_detal <= 0:
+            continue
+        grupos[p.get("seccion") or "Sin sección"].append({
+            "producto": _nombre_var(p), "marca": p.get("marca"),
+            "detal": {"precio": _f(precio_detal), "desde": 1},
+            "mayor": _escala(p.get("precio_mayor"), p.get("cantidad_mayor")),
+            "gran_mayor": _escala(p.get("precio_gran_mayor"), p.get("cantidad_gran_mayor")),
+        })
+    secciones = []
+    for nombre in sorted(grupos, key=lambda x: (x == "Sin sección", x.lower())):
+        items = sorted(grupos[nombre], key=lambda x: x["producto"].lower())
+        secciones.append({"seccion": nombre, "filas": items})
+    return {"resumen": {"productos": sum(len(g["filas"]) for g in secciones), "secciones": len(secciones)},
+            "secciones": secciones}
+
+
 def calc_movimientos(filas, admin):
     acum = defaultdict(lambda: {"movimientos": 0, "unidades": Decimal(0), "costo": Decimal(0)})
     for m in filas:
@@ -772,6 +803,17 @@ def r_sin_movimiento(qs, u):
     return calc_sin_movimiento(catalogo, {m.get("variante_id") for m in ventas}, admin), desde, hasta
 
 
+def r_lista_precios(qs, u):
+    """Catálogo activo SOLO con columnas de precio de venta: precio_costo no se pide nunca, ni siquiera al administrador,
+    porque esta lista se le enseña al cliente."""
+    cols = ("id,nombre,marca,color,talla,seccion,seccion_id,precio_detal,precio_mayor,cantidad_mayor,"
+            "precio_gran_mayor,cantidad_gran_mayor")
+    params = [("select", cols), ("activo", "is.true"), ("order", "id.asc")]
+    if _seccion(qs):
+        params.append(("seccion_id", f"eq.{_seccion(qs)}"))
+    return calc_lista_precios(todo("inv_catalogo", params, MAX_FILAS, "productos")), None, None
+
+
 def r_vendedores(qs, u):
     filas, _ = _get("perfiles", [("select", "nombre"), ("activo", "is.true"), ("order", "nombre.asc"), ("limit", "500")])
     return sorted({(p.get("nombre") or "").strip() for p in filas if (p.get("nombre") or "").strip()}), None, None
@@ -780,7 +822,7 @@ def r_vendedores(qs, u):
 REPORTES = {
     "cierre": r_cierre, "facturas": r_facturas, "detalle": r_detalle, "ventas": r_ventas, "productos": r_productos,
     "clientes": r_clientes, "finanzas": r_finanzas, "inventario": r_inventario, "movimientos": r_movimientos,
-    "sin_movimiento": r_sin_movimiento, "vendedores": r_vendedores,
+    "sin_movimiento": r_sin_movimiento, "lista_precios": r_lista_precios, "vendedores": r_vendedores,
 }
 
 
