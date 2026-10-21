@@ -111,4 +111,6 @@
   .empty-inline, .rep-error { border-color: #999; }
   .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 56px; break-inside: avoid; }
   .firmas div { padding-top: 6px; text-align: center; border-top: 1px solid #000; }
+  .para-cliente .firmas { display: none; }
+  .para-cliente .rep-sec { break-inside: auto; }
 }
