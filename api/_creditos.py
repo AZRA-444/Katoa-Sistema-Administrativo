@@ -177,3 +177,30 @@ def ajustar_por_devolucion(id_factura, lineas):
     except Exception as e:  # noqa: BLE001
         print(f"[creditos] ajustar devolución {id_factura} {e!r}", file=sys.stderr)
         return FALLO
+
+
+def anular_por_factura(id_factura):
+    """Tras anular una factura: cierra su cuenta por cobrar (estado «anulada») para que deje de cobrarse.
+    Se llama DESPUÉS de que la factura ya quedó anulada en la base, así que NUNCA lanza excepciones: un fallo
+    aquí no puede convertirse en «Error interno» cuando la anulación ya se hizo. Devuelve:
+      · None                 la factura no es a crédito (o su cuenta ya estaba anulada): nada que cerrar;
+      · float                dólares que ya tenía abonados la cuenta (0.0 si no hubo abonos): hay que devolverlos;
+      · {"fallo": True}      no se pudo cerrar la cuenta: quien llama debe AVISAR al usuario (se cierra a mano en Cobros).
+    Es una sola petición condicional (`estado != anulada`): un reintento no cierra la cuenta dos veces."""
+    try:
+        r = c._http.patch(
+            f"{c.SUPABASE_URL}/rest/v1/cuentas_por_cobrar",
+            params={"id_factura": f"eq.{id_factura}", "estado": "neq.anulada", "select": "id,abonado_usd"},
+            json={"estado": "anulada"},
+            headers=c._hdr_servicio({"Prefer": "return=representation"}), timeout=c.TIMEOUT,
+        )
+        if r.status_code != 200:
+            print(f"[creditos] anular cuenta {id_factura} {r.status_code}: {r.text[:300]}", file=sys.stderr)
+            return {"fallo": True}
+        filas = r.json()
+        if not filas:
+            return None
+        return float(_r2(Decimal(str(filas[0].get("abonado_usd") or 0))))
+    except Exception as e:  # noqa: BLE001 - la factura ya está anulada: no romper la respuesta
+        print(f"[creditos] anular cuenta {id_factura} {e!r}", file=sys.stderr)
+        return {"fallo": True}

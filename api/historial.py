@@ -219,7 +219,9 @@ class handler(BaseHTTPRequestHandler):
                 raise c.ErrorPeticion(400, "Acción no válida.")
             abonado = _anular(d, u)
             msg = "Factura anulada y stock devuelto al inventario."
-            if abonado:
+            if isinstance(abonado, dict):   # la factura SÍ se anuló, pero no se pudo cerrar su deuda
+                msg += " Era una factura a crédito y no se pudo cerrar su deuda: ciérrala a mano en Cobros."
+            elif abonado:
                 msg += (f" Esta factura era a crédito y ya tenía ${abonado:.2f} abonados: la deuda quedó cerrada, "
                         "pero ese dinero hay que devolvérselo al cliente.")
             c.responder(self, 200, {"status": "ok", "message": msg})
