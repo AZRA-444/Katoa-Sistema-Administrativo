@@ -32,6 +32,7 @@ POST {accion: "autorizacion_aprobar" | "autorizacion_rechazar", id}             
 """
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
@@ -220,7 +221,7 @@ def _push_solicitud(u, d, res):
         return
     accion = aut.ACCIONES.get(d.get("accion_autorizar"), "una operación")
     _push.notificar("Solicitud de autorización", f"{u.get('nombre') or u.get('email')} pide autorización: {accion}.",
-                    roles=["admin", "sysadmin"], excluir=u["id"], tag="autorizacion-pendiente", urgente=True)
+                    roles=["admin", "sysadmin"], excluir=u["id"], tag=f"autorizacion-pendiente-{int(time.time())}", urgente=True)
 
 
 def _push_respuesta(i, aprobada):
@@ -234,7 +235,7 @@ def _push_respuesta(i, aprobada):
         f = r.json()[0]
         texto = ("Aprobada. Pide el código a un administrador: " if aprobada else "Rechazada: ") + str(f.get("resumen") or "")
         _push.notificar("Tu solicitud fue " + ("aprobada" if aprobada else "rechazada"), texto,
-                        usuarios=[str(f["solicitante_id"])], tag=f"autorizacion-{i}")
+                        usuarios=[str(f["solicitante_id"])], tag=f"autorizacion-{i}-{int(time.time())}")
     except Exception as e:  # noqa: BLE001 — accesorio
         print(f"[notificaciones] push de respuesta falló: {type(e).__name__}", file=sys.stderr)
 
@@ -368,7 +369,7 @@ class handler(BaseHTTPRequestHandler):
                 if not _push.configurado():
                     raise c.ErrorPeticion(503, "Los avisos push aún no están configurados en el servidor.")
                 if not _push.notificar("Prueba de avisos", "Si ves esto, los avisos de este dispositivo funcionan.",
-                                       usuarios=[u["id"]], tag="prueba"):
+                                       usuarios=[u["id"]], tag=f"prueba-{int(time.time())}"):
                     raise c.ErrorPeticion(409, "No se pudo enviar: activa los avisos en este dispositivo e inténtalo otra vez.")
                 self._ok(message="Aviso de prueba enviado.")
             else:
