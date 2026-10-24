@@ -44,7 +44,12 @@
         return a.length === bytes.length && a.every((v, i) => v === bytes[i]);
     };
 
-    const registro = () => navigator.serviceWorker.ready;
+    // `ready` no se resuelve nunca si el service worker no se registró: con tope de tiempo para no colgar la pantalla
+    const registro = () => Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, rej) => setTimeout(
+            () => rej(new Error('El service worker no está activo. Cierra la app por completo y vuelve a abrirla.')), 8000)),
+    ]);
     const suscripcionActual = async () => (await registro()).pushManager.getSubscription();
 
     /** Crea (o reutiliza) la suscripción del navegador y la registra en el servidor. */
@@ -54,7 +59,8 @@
         const bytes = aBytes(clave);
         const reg = await registro();
         let sub = await reg.pushManager.getSubscription();
-        if (sub && !mismaClave(sub.options && sub.options.applicationServerKey, bytes)) {
+        const claveActual = sub && sub.options && sub.options.applicationServerKey;
+        if (sub && claveActual && !mismaClave(claveActual, bytes)) {   // si Safari no expone la clave, no se re-suscribe
             await sub.unsubscribe();    // se cambió la clave VAPID: hay que suscribir de nuevo
             sub = null;
         }
