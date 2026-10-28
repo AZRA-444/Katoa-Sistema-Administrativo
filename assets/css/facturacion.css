@@ -496,7 +496,7 @@ tbody tr:last-child td {
 }
 
 .totals .grand dt {
-  font: 500 1.5rem var(--font-body);
+  font: 500 1.5rem var(--font-display);
 }
 
 .totals .grand dd {
