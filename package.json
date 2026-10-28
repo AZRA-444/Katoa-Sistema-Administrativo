@@ -1,9 +1,0 @@
-{
-  "name": "katoa-sistema-administrativo",
-  "private": true,
-  "type": "module",
-  "description": "Sin dependencias: solo declara que js/ son módulos ES para poder probarlos con `npm test` (node --test).",
-  "scripts": {
-    "test": "node --test \"tests/js/*.test.mjs\""
-  }
-}
