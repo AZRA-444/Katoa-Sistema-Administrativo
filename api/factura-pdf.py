@@ -93,12 +93,15 @@ class handler(BaseHTTPRequestHandler):
             return _error(self, e.status, e.mensaje)
         except (requests.RequestException, RuntimeError):
             return _error(self, 503, MSG_NO_DISPONIBLE)
+        self._entregar_pdf(pdf, f"{DOC_ARCHIVO}-{id_factura}.pdf", "No se encontró el PDF de esta factura.")
+
+    def _entregar_pdf(self, pdf, nombre_archivo, mensaje_404):
         if pdf is None:
-            return _error(self, 404, "No se encontró el PDF de esta factura.")
+            return _error(self, 404, mensaje_404)
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Length", str(len(pdf)))
-        self.send_header("Content-Disposition", f'inline; filename="{DOC_ARCHIVO}-{id_factura}.pdf"')
+        self.send_header("Content-Disposition", f'inline; filename="{nombre_archivo}"')
         self.send_header("Cache-Control", "private, no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()

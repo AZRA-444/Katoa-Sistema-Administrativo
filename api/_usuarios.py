@@ -12,7 +12,7 @@
         -> {"usuario": {id, nombre, ...}}  (usuario_clave añade clave_temporal, que se muestra UNA vez)
 
 Quién puede asignar qué rol (nadie puede crear a alguien con más poder del que tiene):
-    admin    -> personal, encargado
+    admin    -> personal (se muestra como «Vendedor»), encargado
     sysadmin -> personal, encargado, admin, sysadmin
 Cambia ROLES_ASIGNABLES si quieres otra regla (por ejemplo, que admin también pueda crear admins).
 

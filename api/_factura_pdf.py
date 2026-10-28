@@ -24,11 +24,10 @@ DOC_TITULO = "NOTA DE ENTREGA"        # encabezado grande del PDF
 DOC_NOMBRE = "nota de entrega"        # en frases: "Adjuntamos tu nota de entrega..."
 DOC_ARCHIVO = "Nota-de-entrega"       # prefijo del archivo: Nota-de-entrega-<id>.pdf
 
-# Datos de la empresa (se pueden cambiar con variables de entorno en Vercel).
-EMPRESA = os.environ.get("EMPRESA_NOMBRE", "Corporación Katoa Global")
-EMPRESA_RIF = os.environ.get("EMPRESA_RIF", "")
-EMPRESA_DIRECCION = os.environ.get("EMPRESA_DIRECCION", "")
-EMPRESA_TELEFONO = os.environ.get("EMPRESA_TELEFONO", "")
+# Datos generales de la empresa y logo: api/_marca.py (variables de entorno en Vercel). Se re-exportan aquí con los
+# mismos nombres de siempre para que el resto del código no cambie.
+from _marca import (EMPRESA, EMPRESA_DIRECCION, EMPRESA_EMAIL, EMPRESA_RIF, EMPRESA_TELEFONO,  # noqa: E402,F401
+                    lineas_empresa, logo_flowable)
 
 # Rótulo de la tasa en el PDF. La tasa de la factura puede haberla ajustado el vendedor (dentro del margen que
 # valida el servidor frente a la tasa oficial), así que por defecto se rotula «tasa de cambio». Si tu operación
@@ -104,15 +103,54 @@ def _fecha(creada=None):
     return datetime.now(VENEZUELA).strftime("%d/%m/%Y  %I:%M %p")
 
 
-def _pie(canvas, doc):
+# Franja de marca (la misma de la app): terracota · salvia · crema · malva
+FRANJA = [colors.HexColor(h) for h in ("#BE6E41", "#C4C8B3", "#F5DBC1", "#D6CACA")]
+
+
+def pintar_pagina(canvas, doc, texto_pie):
+    """Franja de marca arriba y pie con el nombre de la empresa (y el número de página) en cada hoja."""
     canvas.saveState()
+    ancho_pag, alto_pag = letter
+    x = 0
+    for color, parte in zip(FRANJA, (0.4, 0.25, 0.2, 0.15)):
+        canvas.setFillColor(color)
+        canvas.rect(x, alto_pag - 7, ancho_pag * parte + 1, 7, stroke=0, fill=1)
+        x += ancho_pag * parte
     canvas.setStrokeColor(LINEA)
-    canvas.line(doc.leftMargin, 0.75 * inch, letter[0] - doc.rightMargin, 0.75 * inch)
+    canvas.line(doc.leftMargin, 0.75 * inch, ancho_pag - doc.rightMargin, 0.75 * inch)
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(GRIS)
-    canvas.drawCentredString(letter[0] / 2, 0.55 * inch, f"¡Gracias por su compra!  ·  {EMPRESA}")
-    canvas.drawRightString(letter[0] - doc.rightMargin, 0.55 * inch, f"Página {doc.page}")
+    canvas.drawCentredString(ancho_pag / 2, 0.55 * inch, texto_pie)
+    canvas.drawRightString(ancho_pag - doc.rightMargin, 0.55 * inch, f"Página {doc.page}")
     canvas.restoreState()
+
+
+def _pie(canvas, doc):
+    pintar_pagina(canvas, doc, f"¡Gracias por su compra!  ·  {EMPRESA}")
+
+
+def encabezado_documento(s, ancho, titulo, lineas_derecha):
+    """Encabezado común de los documentos: logo + datos de la empresa a la izquierda; título, número y fecha a la derecha.
+    `lineas_derecha`: lista de Paragraph (número, fecha…) que van bajo el título."""
+    datos_empresa = [Paragraph(_e(EMPRESA), s["empresa"])]
+    datos_empresa += [Paragraph(_e(linea), s["peq"]) for linea in lineas_empresa()]
+    logo = logo_flowable(1.0 * inch, 1.7 * inch)
+    ancho_logo = (logo.drawWidth + 12) if logo else 0
+    ancho_der = ancho * 0.36
+    columnas = [[datos_empresa, [Paragraph(_e(titulo), s["titulo"]), *lineas_derecha]]]
+    anchos = [ancho - ancho_logo - ancho_der, ancho_der]
+    if logo:
+        columnas = [[logo, *columnas[0]]]
+        anchos = [ancho_logo, *anchos]
+    cab = Table(columnas, colWidths=anchos)
+    cab.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.6, TERRACOTA),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return cab
 
 
 def generar_pdf(factura, detalles):
@@ -127,24 +165,11 @@ def generar_pdf(factura, detalles):
     ancho = letter[0] - doc.leftMargin - doc.rightMargin
     historia = []
 
-    # ── Encabezado ──
-    datos_empresa = [Paragraph(_e(EMPRESA), s["empresa"])]
-    for linea in (f"RIF: {EMPRESA_RIF}" if EMPRESA_RIF else "", EMPRESA_DIRECCION, EMPRESA_TELEFONO):
-        if linea:
-            datos_empresa.append(Paragraph(_e(linea), s["peq"]))
-    datos_factura = [
-        Paragraph(DOC_TITULO, s["titulo"]),
+    # ── Encabezado: logo y datos generales de la empresa ──
+    cab = encabezado_documento(s, ancho, DOC_TITULO, [
         Paragraph(f"N.º {_e(factura['id_factura'])}", s["der"]),
         Paragraph(_fecha(factura.get("created_at")), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
-    ]
-    cab = Table([[datos_empresa, datos_factura]], colWidths=[ancho * 0.55, ancho * 0.45])
-    cab.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEBELOW", (0, 0), (-1, 0), 1.6, TERRACOTA),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    ])
     historia += [cab, Spacer(1, 14)]
 
     # ── Cliente ──

@@ -13,8 +13,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from _factura_pdf import (CREMA, EMPRESA, EMPRESA_DIRECCION, EMPRESA_RIF, EMPRESA_TELEFONO, GRIS, LINEA, TERRACOTA,
-                          _e, _estilos, _m)
+from _factura_pdf import CREMA, EMPRESA, GRIS, LINEA, TERRACOTA, _e, _estilos, _m, encabezado_documento, pintar_pagina
 
 COMP_TITULO = "COMPROBANTE DE EGRESO"
 COMP_NOMBRE = "comprobante de egreso"
@@ -33,13 +32,7 @@ def _fecha(iso):
 
 
 def _pie(canvas, doc):
-    canvas.saveState()
-    canvas.setStrokeColor(LINEA)
-    canvas.line(doc.leftMargin, 0.75 * inch, letter[0] - doc.rightMargin, 0.75 * inch)
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(GRIS)
-    canvas.drawCentredString(letter[0] / 2, 0.55 * inch, f"{EMPRESA}  ·  Comprobante de egreso")
-    canvas.restoreState()
+    pintar_pagina(canvas, doc, f"{EMPRESA}  ·  Comprobante de egreso")
 
 
 def generar_comprobante(egreso, registrado_por=None):
@@ -55,24 +48,11 @@ def generar_comprobante(egreso, registrado_por=None):
     ancho = letter[0] - doc.leftMargin - doc.rightMargin
     historia = []
 
-    # ── Encabezado ──
-    datos_empresa = [Paragraph(_e(EMPRESA), s["empresa"])]
-    for linea in (f"RIF: {EMPRESA_RIF}" if EMPRESA_RIF else "", EMPRESA_DIRECCION, EMPRESA_TELEFONO):
-        if linea:
-            datos_empresa.append(Paragraph(_e(linea), s["peq"]))
-    datos_doc = [
-        Paragraph(COMP_TITULO, s["titulo"]),
+    # ── Encabezado: logo y datos generales de la empresa ──
+    cab = encabezado_documento(s, ancho, COMP_TITULO, [
         Paragraph(f"N.º {num}", s["der"]),
         Paragraph(_fecha(egreso.get("fecha")), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
-    ]
-    cab = Table([[datos_empresa, datos_doc]], colWidths=[ancho * 0.50, ancho * 0.50])
-    cab.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEBELOW", (0, 0), (-1, 0), 1.6, TERRACOTA),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    ])
     historia += [cab, Spacer(1, 14)]
 
     # ── Beneficiario ──
