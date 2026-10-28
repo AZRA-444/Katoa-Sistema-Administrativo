@@ -55,6 +55,9 @@
     const NIVELES = { personal: 1, encargado: 2, admin: 3, sysadmin: 4 };
     const nivelDe = (rol) => NIVELES[String(rol || '').toLowerCase()] || 0;
 
+    // Cómo se ve cada rol en pantalla. La clave interna («personal») no cambia: la usan la base de datos y los permisos.
+    const ETIQUETAS_ROL = { personal: 'Vendedor', encargado: 'Encargado', admin: 'Administrador', sysadmin: 'Sysadmin' };
+
     const REGLAS = [
         ['[data-personal-access]', 'personal'],
         ['[data-encargado-access]', 'encargado'],
@@ -66,6 +69,12 @@
         usuario: null,
         credito: null, // reglas de la venta a crédito: { permitido, plazo_max_dias } (las manda /api/sesion)
         debeCambiarClave: false,
+
+        // Nombre del rol para mostrar al usuario: «personal» → «Vendedor».
+        etiquetaRol(rol) {
+            const k = String(rol ?? '').toLowerCase();
+            return ETIQUETAS_ROL[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
+        },
 
         tieneRol(...roles) {
             if (!this.usuario) return false;

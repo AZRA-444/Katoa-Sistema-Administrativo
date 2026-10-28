@@ -316,7 +316,8 @@ function cambiarTab(id) {
 }
 
 //--- USUARIOS ---//
-const ROLES = { personal: 'Personal', encargado: 'Encargado', admin: 'Administrador', sysadmin: 'Sysadmin' };
+// «personal» es la clave interna del rol (base de datos y permisos); en pantalla se llama «Vendedor».
+const ROLES = { personal: 'Vendedor', encargado: 'Encargado', admin: 'Administrador', sysadmin: 'Sysadmin' };
 
 async function cargarUsuarios() {
     try { S.usr = await api(`${API}?modo=usr_lista`); pintarUsuarios(); }

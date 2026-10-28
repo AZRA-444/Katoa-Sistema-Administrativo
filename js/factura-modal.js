@@ -72,7 +72,10 @@ function montar() {
 <dialog class="fm-dlg" id="fmFactura" aria-labelledby="fmTitulo">
   <div class="fm-det">
     <div class="fm-cab">
-      <div><h2 id="fmTitulo">Factura</h2><p class="fm-muted" id="fmSub"></p></div>
+      <div>
+        <div class="fm-marca"><img src="/assets/img/icons/icon-192.png" alt="" width="28" height="28" /><span>Corporación Katoa Global</span></div>
+        <h2 id="fmTitulo">Factura</h2><p class="fm-muted" id="fmSub"></p>
+      </div>
       <button type="button" class="fm-btn" data-fm-cerrar aria-label="Cerrar"><i class="fas fa-xmark"></i><span class="fm-sr">Cerrar</span></button>
     </div>
     <p class="fm-banner" id="fmAnulada" hidden></p>
@@ -136,7 +139,7 @@ function linea(rotulo, valor) {
 function pintar(f) {
     factura = f;
     const anulada = f.estado === 'anulada';
-    $('#fmTitulo').textContent = `Factura ${f.id_factura}`;
+    $('#fmTitulo').replaceChildren('Factura ', el('span', { className: 'fm-num', textContent: f.id_factura }));
     $('#fmSub').textContent = fechaHora(f.created_at);
 
     const banner = $('#fmAnulada');

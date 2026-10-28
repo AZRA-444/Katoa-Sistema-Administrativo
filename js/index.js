@@ -7,7 +7,7 @@
 
     const nombre = usuario.nombre || usuario.email || '';
     document.getElementById('usuarioNombre').textContent = nombre;
-    document.getElementById('usuarioRol').textContent = usuario.rol || '';
+    document.getElementById('usuarioRol').textContent = Auth.etiquetaRol(usuario.rol);
     document.getElementById('saludo').textContent = usuario.nombre ? `Hola, ${usuario.nombre.split(' ')[0]}` : 'Hola';
     document.getElementById('btnSalir').addEventListener('click', () => Auth.cerrarSesion());
 
