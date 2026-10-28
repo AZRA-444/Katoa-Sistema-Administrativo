@@ -14,7 +14,7 @@
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .kpi { padding: 14px 16px; background: var(--crema-soft); border: 1px solid var(--line); border-radius: 12px; }
 .kpi span { display: block; font-size: .8rem; font-weight: 600; color: var(--muted); }
-.kpi strong { display: block; margin-top: 2px; font: 500 1.9rem/1.1 var(--font-display); color: var(--terracota-800); }
+.kpi strong { display: block; margin-top: 2px; font: 500 1.9rem/1.1 var(--font-body); color: var(--terracota-800); }
 .kpi small { color: var(--muted); font-size: .82rem; }
 .kpi.pos strong { color: #2F6B3B; }
 .kpi.neg strong { color: var(--danger); }
