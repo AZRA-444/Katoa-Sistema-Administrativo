@@ -1,0 +1,3 @@
+# Solo para desarrollo y tests (Vercel NO lo instala):  pip install -r requirements-dev.txt && pytest
+-r requirements.txt
+pytest==9.1.1

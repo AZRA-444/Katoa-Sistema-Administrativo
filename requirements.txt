@@ -1,0 +1,5 @@
+# Dependencias de producción (Vercel). Versiones FIJAS: un despliegue de hoy y uno de dentro de seis meses
+# instalan exactamente lo mismo. Para actualizar: cambia aquí, ejecuta los tests (requirements-dev.txt) y despliega.
+requests==2.32.5
+reportlab==4.5.1
+cryptography==46.0.6   # notificaciones push (api/_push.py)

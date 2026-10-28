@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link rel="stylesheet" href="assets/vendor/fontawesome-6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="assets/vendor/fonts-5.3.0/fonts.css" />
+  <meta name="theme-color" content="#BE6E41" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/assets/img/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/img/icons/favicon-32.png" />
+  <meta name="application-name" content="Katoa" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Katoa" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <script src="/js/pwa.js" defer></script>
+  <script src="/js/push.js" defer></script>
+  <link rel="stylesheet" href="assets/css/global.css" />
+  <link rel="stylesheet" href="assets/css/home.css" />
+  <!-- Oculta la página hasta que auth-guard.js confirme la sesión -->
+  <style>
+    html {
+      visibility: hidden
+    }
+  </style>
+  <script src="/js/auth-guard.js"></script>
+  <link rel="icon" href="assets/img/favicon.ico">
+  <title>Panel — Katoa</title>
+</head>
+
+<body>
+  <header class="home-bar">
+    <div class="home-logo">Katoa</div>
+    <div class="home-user">
+      <div class="home-user-info">
+        <span class="home-user-nombre" id="usuarioNombre"></span>
+        <span class="home-user-rol" id="usuarioRol"></span>
+      </div>
+      <button type="button" class="btn-salir" id="btnSalir">
+        <i class="fa-solid fa-right-from-bracket"></i> Salir
+      </button>
+    </div>
+  </header>
+
+  <main class="home">
+    <div class="home-hero fade-in-up">
+      <span class="home-eyebrow">Panel de control</span>
+      <h1 id="saludo">Hola</h1>
+      <p>Elige una sección para comenzar.</p>
+    </div>
+
+    <section class="home-section" data-seccion>
+      <h2 class="section-title">Ventas</h2>
+      <div class="card-content stagger">
+        <!-- Accesible para: personal, encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/facturacion.html" data-personal-access>
+          <div class="card-icon"><i class="fa-solid fa-cart-shopping"></i></div>
+          <div class="card-body">
+            <h3>Nueva venta</h3>
+            <p>Registra productos y genera facturas al instante.</p>
+          </div>
+        </a>
+        <!-- Accesible para: personal, encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/pedidos.html" data-personal-access>
+          <div class="card-icon">
+            <i class="fab fa-whatsapp"></i>
+          </div>
+          <div class="card-body">
+            <h3>Pedidos</h3>
+            <p>Registra ventas y envía facturas a los clientes por WhatsApp.</p>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="home-section" data-seccion>
+      <h2 class="section-title">Operación</h2>
+      <div class="card-content stagger">
+        <!-- Accesible para: encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/historial.html" data-encargado-access>
+          <div class="card-icon"><i class="fas fa-receipt"></i></div>
+          <div class="card-body">
+            <h3>Facturas de hoy</h3>
+            <p>Revisa las transacciones del día actual.</p>
+          </div>
+        </a>
+        <!-- Accesible para: encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/cobros.html" data-encargado-access>
+          <div class="card-icon"><i class="fa-solid fa-hand-holding-dollar"></i></div>
+          <div class="card-body">
+            <h3>Cobros</h3>
+            <p>Cobra cuotas y revisa vencidas.</p>
+          </div>
+        </a>
+        <!-- Accesible para: encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/inventario.html" data-encargado-access>
+          <div class="card-icon"><i class="fas fa-boxes-stacked"></i></div>
+          <div class="card-body">
+            <h3>Inventario</h3>
+            <p>Stock por sección, kardex, lotes y códigos de barras.</p>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="home-section" data-seccion>
+      <h2 class="section-title">Administración</h2>
+      <div class="card-content stagger">
+        <!-- Accesible para: admin y sysAdmin -->
+        <a class="card" href="assets/pages/administrador.html" data-admin-only>
+          <div class="card-icon"><i class="fas fa-chart-bar"></i></div>
+          <div class="card-body">
+            <h3>Administrador</h3>
+            <p>Estadísticas, ventas del mes y comisiones.</p>
+          </div>
+        </a>
+        <!-- Accesible para: admin y sysAdmin -->
+        <a class="card" href="assets/pages/devoluciones.html" data-admin-only>
+          <div class="card-icon"><i class="fas fa-rotate-left"></i></div>
+          <div class="card-body">
+            <h3>Devoluciones</h3>
+            <p>Devuelve productos de una factura y reingresa el stock.</p>
+          </div>
+        </a>
+        <!-- Accesible para: encargado, admin y sysAdmin -->
+        <a class="card" href="assets/pages/reportes.html" data-encargado-access>
+          <div class="card-icon"><i class="fas fa-print"></i></div>
+          <div class="card-body">
+            <h3>Reportes</h3>
+            <p>Cierre de caja, reimpresión de facturas y reportes imprimibles.</p>
+          </div>
+        </a>
+        <!-- Accesible para: admin y sysAdmin (solicitudes de código de autorización) -->
+        <a class="card" href="assets/pages/notificaciones.html#autorizaciones" data-admin-only>
+          <div class="card-icon"><i class="fas fa-key"></i></div>
+          <div class="card-body">
+            <h3>Autorizaciones <span id="autBadge" hidden></span></h3>
+            <p>Aprueba solicitudes de anulación o inventario con un código de un solo uso.</p>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="home-section" data-seccion>
+      <h2 class="section-title">Avisos</h2>
+      <div class="card-content stagger">
+        <!-- Accesible para: todo el personal (las pestañas de publicar solo las ve admin/sysAdmin) -->
+        <a class="card" href="assets/pages/notificaciones.html" data-personal-access>
+          <div class="card-icon"><i class="fas fa-bell"></i></div>
+          <div class="card-body">
+            <h3>Notificaciones</h3>
+            <p>Consulta los avisos y novedades de la empresa y activa las alertas en tu dispositivo.</p>
+          </div>
+        </a>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="js/index.js"></script>
+</body>
+
+</html>
