@@ -1,8 +1,0 @@
-/* Fuentes alojadas en el propio sitio (antes venían de Google Fonts sin SRI).
- * Inter 300-600 y Cormorant Garamond 500, subconjunto latino (incluye á é í ó ú ñ ¿ ¡). Licencia OFL: ver LICENSE-*.txt.
- * Paquetes @fontsource/inter y @fontsource/cormorant-garamond 5.3.0. */
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('inter-latin-300-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('inter-latin-400-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('inter-latin-500-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('inter-latin-600-normal.woff2') format('woff2'); }
-@font-face { font-family: 'Cormorant Garamond'; font-style: normal; font-weight: 500; font-display: swap; src: url('cormorant-garamond-latin-500-normal.woff2') format('woff2'); }
