@@ -1,0 +1,42 @@
+/* Devoluciones — Katoa · se apoya en global.css, facturacion.css, inventario.css e historial.css */
+.dlg-cuerpo { display: grid; gap: 14px; padding: clamp(16px, 3vw, 26px); }
+
+/* Resultados de la búsqueda de factura */
+.res-fac { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.res-fac button {
+  display: grid; gap: 4px; width: 100%; padding: 10px 14px; text-align: left; font: inherit; color: inherit;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+  transition: border-color .2s, box-shadow .2s;
+}
+.res-fac button:hover, .res-fac button:focus-visible { border-color: var(--terracota); box-shadow: var(--shadow); outline: none; }
+.res-fac .r-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; }
+.res-fac .r-sub { font-size: .85rem; color: var(--muted); }
+
+/* Cabecera de la factura elegida */
+.dev-cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.dev-cab p { margin: 2px 0 0; }
+
+/* Tabla de líneas */
+.tabla-dev td, .tabla-dev th { vertical-align: middle; }
+.tabla-dev .n, .table-wrap .n { text-align: right; font-variant-numeric: tabular-nums; }
+.tabla-dev .c, .table-wrap .c { text-align: center; }
+.tabla-dev input[type="number"] {
+  width: 5.5rem; padding: .45rem .5rem; font: inherit; text-align: right; color: var(--ink);
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+}
+.tabla-dev input[type="number"]:focus { outline: 2px solid var(--terracota); outline-offset: 1px; }
+.tabla-dev input[aria-invalid="true"] { border-color: var(--danger); background: var(--danger-bg); }
+.tabla-dev input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--terracota-700); }
+.tabla-dev tr.agotada { color: var(--muted); }
+.tabla-dev tr.agotada td:first-child { text-decoration: line-through; }
+.tabla-dev .libre { display: block; font-size: .78rem; color: var(--muted); }
+
+/* Detalle */
+.dl-dev { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; margin: 0; }
+.dl-dev dt { font-size: .78rem; font-weight: 600; color: var(--muted); }
+.dl-dev dd { margin: 0; overflow-wrap: anywhere; }
+.btn-enlace { padding: 0; font: inherit; font-weight: 600; color: var(--terracota-800); text-decoration: underline; background: none; border: 0; cursor: pointer; }
+.cel-prod { max-width: 280px; font-size: .88rem; color: var(--muted); }
+.badge.sin-stock { color: var(--muted); background: #fff; border: 1px solid var(--line); }
+tr.fila-dev { cursor: pointer; }
+tr.fila-dev:hover { background: var(--crema-soft); }

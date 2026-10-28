@@ -1,0 +1,44 @@
+/* Notificaciones — Katoa · extiende inventario.css, facturacion.css y administrador.css */
+.topbar .btn[hidden] { display: none; }
+.tab .badge { margin-left: 4px; }
+
+/* Lista de tarjetas */
+.notif-lista { display: grid; gap: 12px; }
+.notif {
+  --c-fondo: var(--crema); --c-texto: var(--terracota-800); --c-borde: var(--terracota);
+  display: flex; gap: 14px; min-width: 0; padding: 14px 16px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+}
+.notif.cat-sistema { --c-fondo: #E6EEF8; --c-texto: #1F4B85; --c-borde: #3E73B8; }
+.notif.no-leida { background: var(--crema-soft); border-color: var(--c-borde); box-shadow: inset 4px 0 0 var(--c-borde); }
+.notif-ico {
+  flex: none; display: grid; place-items: center; width: 42px; height: 42px;
+  color: var(--c-texto); background: var(--c-fondo); border-radius: 12px;
+}
+.notif-body { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.notif-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.notif-cab time { margin-left: auto; font-size: .82rem; color: var(--muted); }
+.cat-badge { display: inline-block; --c-fondo: var(--crema); --c-texto: var(--terracota-800); padding: 2px 10px; font: 600 .75rem var(--font-body); color: var(--c-texto); background: var(--c-fondo); border-radius: 99px; }
+.cat-badge.cat-sistema { --c-fondo: #E6EEF8; --c-texto: #1F4B85; }
+.punto-nueva { display: inline-flex; align-items: center; gap: 6px; font: 600 .75rem var(--font-body); color: var(--danger); }
+.punto-nueva::before { content: ""; width: 8px; height: 8px; background: var(--danger); border-radius: 50%; }
+.notif h3 { font: 600 1.02rem/1.3 var(--font-body); overflow-wrap: anywhere; }
+.notif-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .93rem; color: var(--ink); }
+.notif-pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.notif-pie small { color: var(--muted); }
+.notif-pie .btn { min-height: 40px; padding: .4rem .9rem; font-size: .85rem; }
+
+/* Formulario */
+.contador { display: block; margin-top: 4px; text-align: right; color: var(--muted); font-size: .8rem; }
+.field textarea { resize: vertical; min-height: 120px; }
+#formNotif { display: grid; gap: 14px; align-content: start; }
+.leidas-n { font-variant-numeric: tabular-nums; }
+.tabla-resp .titulo-fila { font-weight: 600; }
+.tabla-resp .titulo-fila + .sub { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .notif { padding: 12px; gap: 10px; }
+  .notif-ico { width: 36px; height: 36px; }
+  .inv-wrap .tabla-resp .titulo-fila + .sub { max-width: none; white-space: normal; }
+  .topbar .btn#btnLeerTodas { flex: 1 1 100%; }
+}

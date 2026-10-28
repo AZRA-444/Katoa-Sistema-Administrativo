@@ -1,0 +1,165 @@
+/* Llamadas al servidor. Usan la sesión (cookie HttpOnly) creada por /api/login. */
+
+const ENDPOINTS = {
+    inventario: '/api/inventario',
+    reportes: '/api/reportes', // api/reportes.py (GET ?tipo=cierre|facturas|detalle|ventas|…)
+    clientes: '/api/guardar-cliente', // api/guardar-cliente.py (GET ?cedula= y POST)
+    factura: '/api/enviar-factura',
+    facturaPdf: '/api/factura-pdf', // GET ?id= → PDF carta · POST {id_factura, telefono} → reenvía por WhatsApp
+    administrador: '/api/administrador', // GET ?modo=egr_pdf&id= → comprobante de egreso (PDF carta)
+    sesion: '/api/sesion',
+    tasas: '/api/tasas', // GET ?tipo=bcv|usdt → el servidor consulta la tasa OFICIAL del BCV / el dólar paralelo
+};
+
+const irALogin = () => location.replace('/login.html?next=' + encodeURIComponent(location.pathname));
+
+// 403 puede ser «sin permiso» o «debes cambiar tu contraseña»: /api/sesion lo distingue.
+const clavePendiente = () =>
+    fetch(ENDPOINTS.sesion, { credentials: 'same-origin', cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => !!d?.debe_cambiar_clave)
+        .catch(() => false);
+
+// El access token dura ~1 h; /api/sesion lo renueva con el refresh token.
+const renovarSesion = () =>
+    fetch(ENDPOINTS.sesion, { credentials: 'same-origin', cache: 'no-store' }).then((r) => r.ok).catch(() => false);
+
+async function request(url, opciones = {}, reintentar = true) {
+    const headers = { Accept: 'application/json', ...(opciones.body ? { 'Content-Type': 'application/json' } : {}) };
+    const r = await fetch(url, { credentials: 'same-origin', ...opciones, headers });
+    if (r.status === 401) {
+        // Sesión vencida: se intenta renovar UNA vez antes de sacar al usuario (no perder la factura en curso).
+        if (reintentar && (await renovarSesion())) return request(url, opciones, false);
+        irALogin();
+        throw new Error('Sesión expirada');
+    }
+    if (r.status === 403 && (await clavePendiente())) {
+        location.replace('/cambiar-clave.html');
+        throw new Error('Debes cambiar tu contraseña antes de continuar.');
+    }
+    return r;
+}
+
+const leerJson = async (r) => ((r.headers.get('content-type') || '').includes('application/json') ? r.json() : null);
+
+//--- API JSON COMPARTIDA ---//
+const SIN_CONEXION = 'Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.';
+
+/**
+ * Llamada al servidor con el sobre estándar {status:'ok'|'error', message, ...}. ÚNICA implementación: antes estaba
+ * copiada en administrador, autorizacion, factura-modal, inventario y notificaciones.
+ *   apiJson(url)          → GET
+ *   apiJson(url, cuerpo)  → POST con `cuerpo` como JSON
+ * Renueva la sesión una vez si venció, manda a cambiar la clave si está pendiente y lanza Error con el mensaje
+ * que se muestra al usuario. Devuelve el JSON completo (`d.data`, `d.truncado`, etc.).
+ */
+export async function apiJson(url, cuerpo) {
+    let r;
+    try {
+        r = await request(url, cuerpo ? { method: 'POST', body: JSON.stringify(cuerpo) } : {});
+    } catch (e) {
+        if (e instanceof TypeError) throw new Error(SIN_CONEXION); // fetch falla con TypeError cuando no hay red
+        throw e;
+    }
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || d?.error || 'No se pudo completar la operación.');
+    return d;
+}
+
+//--- TASA DEL DÍA ---//
+/** GET /api/tasas?tipo= → tasa (Bs) o 0 si no hay: el vendedor la escribe a mano. */
+async function obtenerTasaDe(tipo) {
+    try {
+        const r = await request(`${ENDPOINTS.tasas}?tipo=${tipo}`, { signal: AbortSignal.timeout(8000) });
+        const d = r.ok ? await leerJson(r) : null;
+        return d?.status === 'ok' ? Number(d.tasa) || 0 : 0;
+    } catch {
+        return 0;
+    }
+}
+
+/** Tasa OFICIAL del BCV (Bs por USD). Antes salía de open.er-api.com, un agregador de mercado que no es la tasa oficial. */
+export const obtenerTasa = () => obtenerTasaDe('bcv');
+
+/** Dólar paralelo / USDT (Bs por USDT). */
+export const obtenerTasaUsdt = () => obtenerTasaDe('usdt');
+
+//--- INVENTARIO ---//
+/** GET /api/inventario?q= → [{id,nombre,marca,color,talla,cantidad,precio_detal,precio_mayor,precio_gran_mayor,cantidad_mayor,cantidad_gran_mayor}] */
+export async function buscarProductos(q, signal) {
+    try {
+        const r = await request(`${ENDPOINTS.inventario}?q=${encodeURIComponent(q)}`, { signal });
+        const d = r.ok ? await leerJson(r) : null;
+        return Array.isArray(d) ? d : d?.data ?? [];
+    } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        return [];
+    }
+}
+
+//--- CLIENTES ---//
+/** GET /api/guardar-cliente?cedula= → {status:'ok', cliente:{cedula,nombre,apellido,telefono}} | 404. Devuelve el cliente o null. */
+export async function buscarCliente(cedula) {
+    try {
+        const r = await request(`${ENDPOINTS.clientes}?cedula=${encodeURIComponent(cedula)}`);
+        const d = r.ok ? await leerJson(r) : null;
+        return d?.status === 'ok' ? d.cliente : null;
+    } catch {
+        return null;
+    }
+}
+
+export const guardarCliente = (c) =>
+    request(ENDPOINTS.clientes, { method: 'POST', body: JSON.stringify(c), keepalive: true }).catch(() => { });
+
+//--- FACTURA ---//
+/** URL del PDF (tamaño carta) de una factura ya guardada. Se abre en una pestaña nueva para imprimir. */
+export const urlPdfFactura = (id) => `${ENDPOINTS.facturaPdf}?id=${encodeURIComponent(id)}`;
+
+/** Comprobante de egreso en PDF (carta) para ver e imprimir. Solo admin y sysadmin. */
+export const urlComprobanteEgreso = (id) => `${ENDPOINTS.administrador}?modo=egr_pdf&id=${encodeURIComponent(id)}`;
+
+/** Reenvía el PDF por WhatsApp. Devuelve 'enviado' | 'sin_whatsapp' | 'no_disponible' | 'no_configurado'. */
+export async function reenviarWhatsapp(idFactura, telefono) {
+    const r = await request(ENDPOINTS.facturaPdf, { method: 'POST', body: JSON.stringify({ id_factura: idFactura, telefono }) });
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo reenviar la factura.');
+    return d.whatsapp;
+}
+
+/** POST /api/enviar-factura. Lanza Error con el mensaje que se muestra al usuario. */
+export async function enviarFactura(payload) {
+    const r = await request(ENDPOINTS.factura, { method: 'POST', body: JSON.stringify(payload) });
+    if (r.status === 404) throw new Error('El servicio de facturación no está disponible en el servidor.');
+    const d = await leerJson(r);
+    if (!d) throw new Error('El servidor no devolvió una respuesta válida.');
+    // Reintento de una factura que ya se había guardado (misma id): se trata como éxito.
+    if (d.status === 'duplicada') return d;
+    if (!r.ok || d.status === 'error') throw new Error(d.message || d.error || 'Error desconocido del servidor.');
+    return d;
+}
+
+//--- REPORTES ---//
+/** GET /api/reportes?tipo=… Devuelve { meta, data }. Lanza Error con el mensaje que se muestra al usuario. */
+export async function obtenerReporte(tipo, params = {}) {
+    const qs = new URLSearchParams({ tipo });
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+    let r;
+    try {
+        r = await request(`${ENDPOINTS.reportes}?${qs}`);
+    } catch (e) {
+        if (e instanceof TypeError) throw new Error('Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.');
+        throw e;
+    }
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudo generar el reporte.');
+    return d;
+}
+
+/** Secciones activas del inventario ({ id, nombre }) para filtrar reportes. */
+export async function obtenerSecciones() {
+    const r = await request(`${ENDPOINTS.inventario}?modo=secciones`);
+    const d = await leerJson(r);
+    if (!r.ok || d?.status !== 'ok') throw new Error(d?.message || 'No se pudieron cargar las secciones.');
+    return d.data;
+}

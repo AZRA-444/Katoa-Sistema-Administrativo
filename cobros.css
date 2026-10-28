@@ -1,0 +1,29 @@
+/* Cobros — Katoa · se apoya en global.css, facturacion.css, inventario.css e historial.css */
+.kpi small { font-size: .78rem; color: var(--muted); }
+.kpi-alerta strong { color: var(--danger); }
+.banner-aviso { padding: 12px 16px; background: #FFF6E5; border: 1px solid #E8C77A; border-radius: 14px; display: grid; gap: 8px; }
+.banner-aviso i { color: #B7791F; }
+.sc-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: .9rem; padding: 6px 0; border-top: 1px dashed #E8C77A; }
+.sc-fila .btn { margin-left: auto; }
+
+.cuenta.vencida { background: var(--danger-bg); box-shadow: inset 4px 0 0 var(--danger), var(--shadow); }
+.cuenta.pagada { box-shadow: inset 4px 0 0 #2F7D4F, var(--shadow); }
+.cuenta .fac-total strong { font: 600 1.5rem/1 var(--font-num); font-variant-numeric: lining-nums tabular-nums; color: var(--terracota-800); }
+.cuenta.vencida .fac-total strong { color: var(--danger); }
+.badge.venc { color: var(--danger); background: #fff; border: 1px solid var(--danger); }
+.badge.pronto { color: #8A5A00; background: #FFF6E5; border: 1px solid #E8C77A; }
+.badge.ok { color: #1F6B41; background: #EAF6EF; border: 1px solid #2F7D4F; }
+.barra { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.barra span { display: block; height: 100%; background: var(--terracota); }
+
+.dlg-cobro { width: min(640px, 94vw); max-height: 92vh; max-height: 92dvh; padding: 0; border: 0; border-radius: 16px; box-shadow: var(--shadow-md); overflow: auto; }
+.dlg-cobro::backdrop { background: rgba(30, 41, 59, .45); }
+.dlg-cobro .dlg-body { padding: 18px 20px; display: grid; gap: 10px; text-align: left; }
+.cobro-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cobro-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 16px; }
+.cobro-h { font: 600 .95rem var(--font-body); margin-top: 6px; }
+.cobro-form { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.ab-tabla { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.ab-tabla th, .ab-tabla td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.ab-tabla .n { text-align: right; white-space: nowrap; }
+@media (max-width: 720px) { .sc-fila .btn { margin-left: 0; } }

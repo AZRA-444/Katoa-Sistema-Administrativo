@@ -1,0 +1,301 @@
+"""Genera el PDF del documento (nota de entrega) en tamaño CARTA (8,5 × 11 pulgadas).
+
+El prefijo "_" hace que Vercel NO lo exponga como endpoint.
+El mismo PDF sirve para WhatsApp y para imprimir: el navegador lo abre y se manda a la impresora.
+Recibe los diccionarios de la factura (`factura` y `detalles`): los validados por api/enviar-factura.py al
+guardarla, o los leídos de la base de datos para regenerar un PDF perdido (_whatsapp.regenerar_pdf). La fecha
+impresa es la de la factura (`factura["created_at"]` si existe), nunca la hora en que se regenera.
+"""
+import io
+import os
+import re
+from datetime import datetime, timedelta, timezone
+from xml.sax.saxutils import escape
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+# ── Nombre del documento: se cambia SOLO AQUÍ y se refleja en el PDF, el nombre del archivo y el mensaje de WhatsApp ──
+DOC_TITULO = "NOTA DE ENTREGA"        # encabezado grande del PDF
+DOC_NOMBRE = "nota de entrega"        # en frases: "Adjuntamos tu nota de entrega..."
+DOC_ARCHIVO = "Nota-de-entrega"       # prefijo del archivo: Nota-de-entrega-<id>.pdf
+
+# Datos generales de la empresa y logo: api/_marca.py (variables de entorno en Vercel). Se re-exportan aquí con los
+# mismos nombres de siempre para que el resto del código no cambie.
+from _marca import (EMPRESA, EMPRESA_DIRECCION, EMPRESA_EMAIL, EMPRESA_RIF, EMPRESA_TELEFONO,  # noqa: E402,F401
+                    lineas_empresa, logo_flowable)
+
+# Rótulo de la tasa en el PDF. La tasa de la factura puede haberla ajustado el vendedor (dentro del margen que
+# valida el servidor frente a la tasa oficial), así que por defecto se rotula «tasa de cambio». Si tu operación
+# exige el rótulo «tasa BCV», pon PDF_ETIQUETA_TASA="tasa BCV" en Vercel.
+ETIQUETA_TASA = os.environ.get("PDF_ETIQUETA_TASA", "tasa de cambio")
+
+VENEZUELA = timezone(timedelta(hours=-4))  # sin horario de verano
+
+TERRACOTA = colors.HexColor("#A65A30")
+CREMA = colors.HexColor("#F6EFE9")
+LINEA = colors.HexColor("#E6DDD5")
+TINTA = colors.HexColor("#1E293B")
+GRIS = colors.HexColor("#5B6678")
+
+METODOS = {
+    "MIXTO": "Pago combinado",
+    "PM": "Pago móvil",
+    "PVD": "Punto de venta (débito)",
+    "PVC": "Punto de venta (crédito)",
+    "CREDITO": "Crédito (fiado)",
+    "ED": "Efectivo en dólares",
+    "EBS": "Efectivo en bolívares",
+    "ZELLE": "Zelle",
+    "BINANCE": "Binance",
+    "OTROS": "Otro método",
+}
+
+
+def _m(n):
+    """1234.5 → 1.234,50 (formato venezolano)."""
+    return f"{float(n):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _cant(n):
+    n = float(n)
+    return str(int(n)) if n == int(n) else f"{n:g}".replace(".", ",")
+
+
+def _cedula(digitos):
+    d = "".join(ch for ch in str(digitos) if ch.isdigit())
+    return f"{int(d):,}".replace(",", ".") if d else str(digitos)
+
+
+def _e(texto):
+    return escape(str(texto or ""))
+
+
+def _estilos():
+    base = ParagraphStyle("base", fontName="Helvetica", fontSize=9.5, leading=13, textColor=TINTA)
+    return {
+        "base": base,
+        "peq": ParagraphStyle("peq", parent=base, fontSize=8, leading=11, textColor=GRIS),
+        "der": ParagraphStyle("der", parent=base, alignment=TA_RIGHT),
+        "etq": ParagraphStyle("etq", parent=base, fontName="Helvetica-Bold", fontSize=7.5, leading=10, textColor=GRIS),
+        "empresa": ParagraphStyle("empresa", parent=base, fontName="Helvetica-Bold", fontSize=17, leading=20, textColor=TERRACOTA),
+        "titulo": ParagraphStyle("titulo", parent=base, fontName="Helvetica-Bold", fontSize=15, leading=18, alignment=TA_RIGHT),
+        "th": ParagraphStyle("th", parent=base, fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white),
+        "thd": ParagraphStyle("thd", parent=base, fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white, alignment=TA_RIGHT),
+        "total": ParagraphStyle("total", parent=base, fontName="Helvetica-Bold", fontSize=12, leading=15, alignment=TA_RIGHT),
+        "totalq": ParagraphStyle("totalq", parent=base, fontName="Helvetica-Bold", fontSize=12, leading=15),
+    }
+
+
+def _fecha(creada=None):
+    """Fecha de la factura en hora de Venezuela. `creada` = ISO de la base de datos; sin él, la hora actual."""
+    if creada:
+        try:
+            s = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], str(creada).replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(s)
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(VENEZUELA).strftime("%d/%m/%Y  %I:%M %p")
+        except ValueError:
+            pass
+    return datetime.now(VENEZUELA).strftime("%d/%m/%Y  %I:%M %p")
+
+
+# Franja de marca (la misma de la app): terracota · salvia · crema · malva
+FRANJA = [colors.HexColor(h) for h in ("#BE6E41", "#C4C8B3", "#F5DBC1", "#D6CACA")]
+
+
+def pintar_pagina(canvas, doc, texto_pie):
+    """Franja de marca arriba y pie con el nombre de la empresa (y el número de página) en cada hoja."""
+    canvas.saveState()
+    ancho_pag, alto_pag = letter
+    x = 0
+    for color, parte in zip(FRANJA, (0.4, 0.25, 0.2, 0.15)):
+        canvas.setFillColor(color)
+        canvas.rect(x, alto_pag - 7, ancho_pag * parte + 1, 7, stroke=0, fill=1)
+        x += ancho_pag * parte
+    canvas.setStrokeColor(LINEA)
+    canvas.line(doc.leftMargin, 0.75 * inch, ancho_pag - doc.rightMargin, 0.75 * inch)
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(GRIS)
+    canvas.drawCentredString(ancho_pag / 2, 0.55 * inch, texto_pie)
+    canvas.drawRightString(ancho_pag - doc.rightMargin, 0.55 * inch, f"Página {doc.page}")
+    canvas.restoreState()
+
+
+def _pie(canvas, doc):
+    pintar_pagina(canvas, doc, f"¡Gracias por su compra!  ·  {EMPRESA}")
+
+
+def encabezado_documento(s, ancho, titulo, lineas_derecha):
+    """Encabezado común de los documentos: logo + datos de la empresa a la izquierda; título, número y fecha a la derecha.
+    `lineas_derecha`: lista de Paragraph (número, fecha…) que van bajo el título."""
+    datos_empresa = [Paragraph(_e(EMPRESA), s["empresa"])]
+    datos_empresa += [Paragraph(_e(linea), s["peq"]) for linea in lineas_empresa()]
+    logo = logo_flowable(1.0 * inch, 1.7 * inch)
+    ancho_logo = (logo.drawWidth + 12) if logo else 0
+    ancho_der = ancho * 0.36
+    columnas = [[datos_empresa, [Paragraph(_e(titulo), s["titulo"]), *lineas_derecha]]]
+    anchos = [ancho - ancho_logo - ancho_der, ancho_der]
+    if logo:
+        columnas = [[logo, *columnas[0]]]
+        anchos = [ancho_logo, *anchos]
+    cab = Table(columnas, colWidths=anchos)
+    cab.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.6, TERRACOTA),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return cab
+
+
+def generar_pdf(factura, detalles):
+    """Devuelve los bytes del PDF (tamaño carta)."""
+    s = _estilos()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=letter,
+        leftMargin=0.75 * inch, rightMargin=0.75 * inch, topMargin=0.7 * inch, bottomMargin=1.0 * inch,
+        title=f"{DOC_TITULO.capitalize()} {factura['id_factura']}", author=EMPRESA,
+    )
+    ancho = letter[0] - doc.leftMargin - doc.rightMargin
+    historia = []
+
+    # ── Encabezado: logo y datos generales de la empresa ──
+    cab = encabezado_documento(s, ancho, DOC_TITULO, [
+        Paragraph(f"N.º {_e(factura['id_factura'])}", s["der"]),
+        Paragraph(_fecha(factura.get("created_at")), ParagraphStyle("f", parent=s["peq"], alignment=TA_RIGHT)),
+    ])
+    historia += [cab, Spacer(1, 14)]
+
+    # ── Cliente ──
+    nombre = f"{factura['nombre']} {factura['apellido']}".strip()
+    cliente = Table(
+        [[
+            [Paragraph("CLIENTE", s["etq"]), Paragraph(_e(nombre), s["base"])],
+            [Paragraph("CÉDULA / RIF", s["etq"]), Paragraph(_e(_cedula(factura["cedula"])), s["base"])],
+            [Paragraph("TELÉFONO", s["etq"]), Paragraph(_e(factura["telefono"]), s["base"])],
+            [Paragraph("VENDEDOR", s["etq"]), Paragraph(_e(factura["vendedor"]), s["base"])],
+        ]],
+        colWidths=[ancho * 0.34, ancho * 0.22, ancho * 0.22, ancho * 0.22],
+    )
+    cliente.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CREMA),
+        ("BOX", (0, 0), (-1, -1), 0.6, LINEA),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    historia += [cliente, Spacer(1, 16)]
+
+    # ── Productos ──
+    filas = [[
+        Paragraph("CANT.", s["th"]), Paragraph("DESCRIPCIÓN", s["th"]),
+        Paragraph("P. UNIT. ($)", s["thd"]), Paragraph("TOTAL ($)", s["thd"]),
+    ]]
+    for d in detalles:
+        filas.append([
+            Paragraph(_cant(d["cantidad"]), s["base"]),
+            Paragraph(_e(d["nombre_producto"]), s["base"]),
+            Paragraph(_m(d["precio_unitario"]), s["der"]),
+            Paragraph(_m(d["precio_total"]), s["der"]),
+        ])
+    tabla = Table(filas, colWidths=[ancho * 0.11, ancho * 0.5, ancho * 0.195, ancho * 0.195], repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), TERRACOTA),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINEA),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBF8F5")]),
+    ]))
+    historia += [tabla, Spacer(1, 12)]
+
+    # ── Totales ──
+    subtotal = float(factura["subtotal_usd"])
+    cobrado = float(factura["total_usd"])
+    mixto = factura["metodo_pago"] == "MIXTO"
+    if mixto:
+        cobrado = subtotal  # los abonos de la tabla suman el total de lista; el ahorro va en las observaciones
+    # En el pago combinado el descuento aplica solo a una parte: va explicado en las observaciones
+    con_descuento = not mixto and abs(subtotal - cobrado) > 0.004
+    tasa = float(factura["tasa_cambio"])
+    lineas = []
+    if con_descuento:
+        lineas.append(("Total a precio de lista", f"$ {_m(subtotal)}", "base"))
+        lineas.append(("Descuento por pago en dólares", f"- $ {_m(subtotal - cobrado)}", "base"))
+    lineas.append(("TOTAL A PAGAR ($)" if con_descuento else "TOTAL ($)", f"$ {_m(cobrado)}", "total"))
+    lineas.append((f"Total Bs ({ETIQUETA_TASA} {_m(tasa)})", f"Bs {_m(factura['total_bs'])}", "base"))
+    filas_tot = []
+    for etiqueta, valor, est in lineas:
+        est_izq = s["totalq"] if est == "total" else s["base"]
+        est_der = s["total"] if est == "total" else s["der"]
+        filas_tot.append([Paragraph(etiqueta, est_izq), Paragraph(valor, est_der)])
+    tot = Table(filas_tot, colWidths=[ancho * 0.30, ancho * 0.22], hAlign="RIGHT")
+    tot.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEABOVE", (0, 2 if con_descuento else 0), (-1, 2 if con_descuento else 0), 0.8, TERRACOTA),
+    ]))
+    historia += [tot, Spacer(1, 18)]
+
+    # ── Pago ──
+    metodo = METODOS.get(factura["metodo_pago"], factura["metodo_pago"])
+    pagos = factura.get("pagos_combinados") if mixto else None
+    if pagos:
+        historia += [Paragraph("FORMA DE PAGO · COMBINADO", s["etq"]), Spacer(1, 4)]
+        filas_p = [[
+            Paragraph("MÉTODO", s["th"]), Paragraph("DETALLE", s["th"]),
+            Paragraph("MONTO", s["thd"]), Paragraph("ABONO ($)", s["thd"]),
+        ]]
+        for x in pagos:
+            partes = []
+            if x.get("banco") not in (None, "", "N/A"):
+                partes.append(f"Banco: {x['banco']}")
+            if x.get("referencia") not in (None, "", "N/A"):
+                partes.append(f"Ref.: {x['referencia']}")
+            if x.get("observaciones"):
+                partes.append(x["observaciones"])
+            simbolo = "$" if x.get("moneda") == "USD" else "Bs"
+            filas_p.append([
+                Paragraph(_e(METODOS.get(x["metodo"], x["metodo"])), s["base"]),
+                Paragraph(_e(" · ".join(partes) or "—"), s["peq"]),
+                Paragraph(f"{simbolo} {_m(x['monto'])}", s["der"]),
+                Paragraph(_m(x["abono_usd"]), s["der"]),
+            ])
+        tabla_pagos = Table(filas_p, colWidths=[ancho * 0.27, ancho * 0.37, ancho * 0.19, ancho * 0.17], repeatRows=1)
+        tabla_pagos.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), TERRACOTA),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINEA),
+        ]))
+        historia += [tabla_pagos, Spacer(1, 10)]
+        pago = []
+    else:
+        pago = [[Paragraph("MÉTODO DE PAGO", s["etq"]), Paragraph(_e(metodo), s["base"])]]
+    if factura.get("banco") not in (None, "", "N/A"):
+        pago.append([Paragraph("BANCO", s["etq"]), Paragraph(_e(factura["banco"]), s["base"])])
+    if factura.get("referencia") not in (None, "", "N/A"):
+        pago.append([Paragraph("REFERENCIA", s["etq"]), Paragraph(_e(factura["referencia"]), s["base"])])
+    if factura.get("observaciones"):
+        pago.append([Paragraph("OBSERVACIONES", s["etq"]), Paragraph(_e(factura["observaciones"]), s["base"])])
+    if pago:
+        bloque_pago = Table(pago, colWidths=[ancho * 0.22, ancho * 0.78])
+        bloque_pago.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.6, LINEA),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        historia.append(bloque_pago)
+
+    doc.build(historia, onFirstPage=_pie, onLaterPages=_pie)
+    return buf.getvalue()
