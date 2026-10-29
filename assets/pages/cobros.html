@@ -93,6 +93,7 @@
                     <div class="field"><label for="aMetodo">Método de pago</label>
                         <select id="aMetodo">
                             <option value="PM">Pago móvil</option>
+                            <option value="TB">Transferencia bancaria</option>
                             <option value="PVD">Punto de venta (débito)</option>
                             <option value="PVC">Punto de venta (crédito)</option>
                             <option value="ED">Efectivo en divisas ($)</option>
@@ -106,9 +107,7 @@
                     <div class="field" id="fTasa" hidden><label for="aTasa">Tasa (Bs por $)</label>
                         <input id="aTasa" type="number" min="0" step="0.01" inputmode="decimal" /><small id="aEquiv" class="muted"></small></div>
                     <div class="field" id="fBanco" hidden><label for="aBanco">Banco destino</label>
-                        <select id="aBanco"><option value="" disabled selected>Seleccione un banco</option>
-                            <option value="Banesco">Banesco</option><option value="Venezuela">Banco de Venezuela</option>
-                            <option value="Provincial">Provincial</option><option value="Banplus">Banplus</option></select></div>
+                        <select id="aBanco"><option value="" disabled selected>Seleccione un banco</option></select></div>
                     <div class="field" id="fRef" hidden><label for="aRef" id="lblRef">Referencia</label>
                         <input id="aRef" autocomplete="off" maxlength="30" /></div>
                     <div class="field span"><label for="aObs" id="lblObs">Observaciones (opcional)</label>
