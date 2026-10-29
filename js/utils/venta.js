@@ -27,7 +27,7 @@ export const CREDITO = 'CREDITO';
 export const METODOS_COMPROBANTE = new Set(['ZELLE', 'BINANCE']); // el pago móvil NO sube comprobante
 
 export const METODOS_MIXTO = [
-    ['PM', 'Pago móvil'], ['PVD', 'Punto de venta (débito)'], ['PVC', 'Punto de venta (crédito)'],
+    ['PM', 'Pago móvil'], ['TB', 'Transferencia bancaria'], ['PVD', 'Punto de venta (débito)'], ['PVC', 'Punto de venta (crédito)'],
     ['ED', 'Efectivo en divisas ($)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'],
     ['EBS', 'Efectivo en bolívares (Bs)'], ['OTROS', 'Otros'],
 ];
@@ -44,12 +44,14 @@ export const PLAZO_DEFECTO = 15;
 // Con estos estados reintentar no sirve de nada: el cliente no tiene WhatsApp o el bot no está configurado.
 export const SIN_REINTENTO = new Set(['enviado', 'sin_whatsapp', 'no_configurado']);
 
+// Métodos que se pagan a una cuenta bancaria: piden banco destino y número de referencia (4 a 12 dígitos).
+export const METODOS_BANCO = new Set(['PM', 'TB']);
+
 export const BANCOS = [
     ['Banesco', 'Banesco', '0134'],
     ['Venezuela', 'Banco de Venezuela', '0102'],
     ['Mercantil', 'Mercantil', '0105'],
     ['Provincial', 'Provincial', '0108'],
-    ['Banplus', 'Banplus', '0174'],
     ['Venezolano de Crédito', 'Venezolano de Crédito', '0104'],
     ['Bancamiga', 'Bancamiga', '0172'],
 ];
@@ -237,7 +239,7 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
         }
         campos += campo('monto', moneda === 'BS' ? 'Monto (Bs)' : 'Monto ($)',
             `<input id="${id('monto')}" data-campo="monto" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" value="${esc(l.monto)}">`);
-        if (l.metodo === 'PM') {
+        if (METODOS_BANCO.has(l.metodo)) {
             campos += campo('banco', 'Banco destino', `<select id="${id('banco')}" data-campo="banco">${opBancos}</select>`);
             campos += campo('referencia', 'Número de referencia',
                 `<input id="${id('referencia')}" data-campo="referencia" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Últimos 4 a 12 dígitos" value="${esc(l.referencia)}">`);
@@ -275,7 +277,7 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
             if (!Number.isFinite(monto) || monto <= 0) return { error: `Pago ${n}: el monto no es válido.`, campo: id('monto') };
             p.monto = round2(monto);
 
-            if (l.metodo === 'PM') {
+            if (METODOS_BANCO.has(l.metodo)) {
                 if (!l.banco) return { error: `Pago ${n}: selecciona el banco destino.`, campo: id('banco') };
                 if (!l.referencia) return { error: `Pago ${n}: ingresa el número de referencia.`, campo: id('referencia') };
                 if (!/^\d{4,12}$/.test(l.referencia)) return { error: `Pago ${n}: la referencia debe tener entre 4 y 12 dígitos.`, campo: id('referencia') };
@@ -357,7 +359,7 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
              <button id="btnCapture" class="btn btn-ghost" type="button"><i class="fas fa-camera"></i> Adjuntar o tomar foto</button>
              <div id="receiptPreview" class="receipt-preview" hidden></div></div>`;
 
-        if (valor === 'PM') {
+        if (METODOS_BANCO.has(valor)) {
             cont.innerHTML =
                 monto('Monto a transferir', mixto) +
                 campo('bankSelect', 'Banco destino',
@@ -426,7 +428,7 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
             }
         }
 
-        if (metodo === 'PM') {
+        if (METODOS_BANCO.has(metodo)) {
             pago.banco = val('bankSelect');
             pago.referencia = val('pmRef');
             if (!pago.banco) return { error: 'Selecciona el banco destino.', campo: 'bankSelect' };
@@ -483,7 +485,7 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
             const l = campo ? lineaDe(e.target) : null;
             if (!l) return;
             if (campo === 'referencia') {
-                e.target.value = l.metodo === 'PM' ? soloDigitos(e.target.value) : e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                e.target.value = METODOS_BANCO.has(l.metodo) ? soloDigitos(e.target.value) : e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
             }
             const monedaAntes = monedaLinea(l);
             l[campo] = e.target.value;
