@@ -5,7 +5,7 @@ const API = '/api/administrador';
 const TZ = 'America/Caracas';
 const PAGINA = 100;
 const METODOS = {
-    PM: 'Pago móvil', PVD: 'Punto débito', PVC: 'Punto crédito', ED: 'Efectivo $', EBS: 'Efectivo Bs',
+    PM: 'Pago móvil', TB: 'Transferencia', PVD: 'Punto débito', PVC: 'Punto crédito', ED: 'Efectivo $', EBS: 'Efectivo Bs',
     ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros', MIXTO: 'Pago combinado', CREDITO: 'Crédito (fiado)',
 };
 // Resultado del envío del comprobante por WhatsApp: [mensaje, es_error]

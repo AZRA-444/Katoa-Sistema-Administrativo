@@ -16,7 +16,7 @@ const TIPOS_KARDEX = {
     DEVOLUCION_CLIENTE: 'Devolución de cliente', DEVOLUCION_PROVEEDOR: 'Devolución a proveedor',
 };
 const METODOS = [
-    ['ED', 'Efectivo en dólares'], ['EBS', 'Efectivo en bolívares'], ['PM', 'Pago móvil'], ['PVD', 'Punto de venta (débito)'],
+    ['ED', 'Efectivo en dólares'], ['EBS', 'Efectivo en bolívares'], ['PM', 'Pago móvil'], ['TB', 'Transferencia bancaria'], ['PVD', 'Punto de venta (débito)'],
     ['PVC', 'Punto de venta (crédito)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'], ['OTROS', 'Otros'], ['MIXTO', 'Pago combinado'], ['CREDITO', 'Crédito (fiado)'],
 ];
 const PRESETS = [['hoy', 'Hoy'], ['ayer', 'Ayer'], ['7d', '7 días'], ['30d', '30 días'], ['mes', 'Este mes'], ['mespasado', 'Mes pasado']];
@@ -139,7 +139,7 @@ function rCierre(d) {
         hayDev && { t: 'Devoluciones', v: usd(dv.usd), s: `${plural(dv.cantidad, 'devolución', 'devoluciones')} · ${bs(dv.bs)}${dv.credito_usd > 0 ? ` · ${usd(dv.credito_usd)} eran de facturas a crédito (bajaron la deuda, no salió dinero)` : ''}` },
         hayDev && { t: 'Ventas netas', v: usd(s.neto_usd), tono: 'destacada', s: 'Ventas menos devoluciones del período' },
         { t: 'Cobrado en dólares', v: usd(s.cobrado_usd), s: 'Efectivo, Zelle, Binance y partes en $' },
-        { t: 'Cobrado en bolívares', v: bs(s.cobrado_bs), s: 'Pago móvil, punto de venta y efectivo en Bs' },
+        { t: 'Cobrado en bolívares', v: bs(s.cobrado_bs), s: 'Pago móvil, transferencia, punto de venta y efectivo en Bs' },
         { t: 'Efectivo en caja ($)', v: usd(s.efectivo_usd), s: 'Para contar los dólares' },
         { t: 'Efectivo en caja (Bs)', v: bs(s.efectivo_bs), s: 'Para contar los bolívares' },
         s.credito_facturas > 0 && { t: 'Vendido a crédito', v: usd(s.credito_usd), s: `${plural(s.credito_facturas, 'factura', 'facturas')} · por cobrar` },
@@ -161,7 +161,7 @@ function rCierre(d) {
     else if (ab && ab.cantidad > 0) {
         nodos.push(sec('Cobros de crédito (abonos recibidos)', 'Dinero que entró en el período por ventas fiadas, sin importar cuándo se vendieron.',
             tabla('Abonos de crédito', [...colAbono, { t: 'Equivalente a precio de lista', k: 'lista_usd', m: 'usd' }], ab.por_metodo)));
-        if (ab.conciliacion_total) nodos.push(sec('Conciliación de abonos', 'Referencias de pago móvil, Zelle y Binance cobradas como abono.', tabla('Conciliación de abonos', [
+        if (ab.conciliacion_total) nodos.push(sec('Conciliación de abonos', 'Referencias de pago móvil, transferencia, Zelle y Binance cobradas como abono.', tabla('Conciliación de abonos', [
             { t: 'Hora', k: 'hora', m: 'hora', v: (r) => fechaHora(r.hora) }, { t: 'Factura', k: 'id_factura', cls: 'mono' }, { t: 'Cliente', k: 'cliente' },
             { t: 'Método', k: 'etiqueta' }, { t: 'Banco', k: 'banco' }, { t: 'Referencia', k: 'referencia', cls: 'mono' },
             { t: 'Monto', f: (r) => MONEDA[r.moneda](r.monto), v: (r) => r.monto, n: true },
@@ -174,7 +174,7 @@ function rCierre(d) {
         sinDatos: 'No hay ventas en este período.',
         pie: d.por_vendedor.length > 1 ? ['Total', entero(s.facturas), usd(s.ventas_usd), usd(s.cobrado_usd), bs(s.cobrado_bs)] : null,
     })));
-    nodos.push(sec('Conciliación: pago móvil, Zelle y Binance', 'Compara cada referencia con tu estado de cuenta o tu billetera.', tabla('Conciliación', [
+    nodos.push(sec('Conciliación: pago móvil, transferencia, Zelle y Binance', 'Compara cada referencia con tu estado de cuenta o tu billetera.', tabla('Conciliación', [
         { t: 'Hora', k: 'hora', m: 'hora', v: (r) => fechaHora(r.hora) }, { t: 'Factura', k: 'id_factura', cls: 'mono' }, { t: 'Método', k: 'etiqueta' },
         { t: 'Banco', k: 'banco' }, { t: 'Referencia', k: 'referencia', cls: 'mono' }, { t: 'Monto', f: (r) => MONEDA[r.moneda](r.monto), v: (r) => r.monto, n: true },
     ], d.conciliacion, { sinDatos: 'No hubo pagos con referencia en este período.' })));

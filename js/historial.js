@@ -19,7 +19,7 @@ function el(tag, props = {}, ...hijos) {
 }
 
 const METODOS = {
-    MIXTO: 'Pago combinado', PM: 'Pago móvil', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)', CREDITO: 'Crédito (fiado)',
+    MIXTO: 'Pago combinado', PM: 'Pago móvil', TB: 'Transferencia bancaria', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)', CREDITO: 'Crédito (fiado)',
     ED: 'Efectivo en dólares', EBS: 'Efectivo en bolívares', ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros',
 };
 const state = { items: [], estado: '', q: '', seq: 0 };

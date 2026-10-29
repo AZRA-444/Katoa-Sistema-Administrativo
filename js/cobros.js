@@ -6,6 +6,7 @@
 import { usd, bs, round2, fechaISO, fechaHora } from './utils/format.js';
 import { obtenerTasa, apiJson as api } from './utils/api.js';
 import { abrirFactura, aviso } from './factura-modal.js';
+import { BANCOS, METODOS_BANCO } from './utils/venta.js';
 
 const API = '/api/historial';
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -18,7 +19,7 @@ function el(tag, props = {}, ...hijos) {
 }
 
 const METODOS = {
-    PM: 'Pago móvil', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)', ED: 'Efectivo en dólares',
+    PM: 'Pago móvil', TB: 'Transferencia bancaria', PVD: 'Punto de venta (débito)', PVC: 'Punto de venta (crédito)', ED: 'Efectivo en dólares',
     EBS: 'Efectivo en bolívares', ZELLE: 'Zelle', BINANCE: 'Binance', OTROS: 'Otros',
 };
 const METODOS_USD = new Set(['ED', 'ZELLE', 'BINANCE']);
@@ -184,10 +185,10 @@ function ajustarCampos() {
     const m = $('#aMetodo').value;
     $('#fMoneda').hidden = m !== 'OTROS';
     $('#fTasa').hidden = monedaActual() !== 'BS';
-    $('#fBanco').hidden = m !== 'PM';
-    $('#fRef').hidden = !['PM', 'ZELLE', 'BINANCE'].includes(m);
-    $('#lblRef').textContent = m === 'PM' ? 'Número de referencia' : m === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia';
-    $('#aRef').placeholder = m === 'PM' ? 'Últimos 4 a 12 dígitos' : '4 a 30 letras o números';
+    $('#fBanco').hidden = !METODOS_BANCO.has(m);
+    $('#fRef').hidden = !METODOS_BANCO.has(m) && !['ZELLE', 'BINANCE'].includes(m);
+    $('#lblRef').textContent = METODOS_BANCO.has(m) ? 'Número de referencia' : m === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia';
+    $('#aRef').placeholder = METODOS_BANCO.has(m) ? 'Últimos 4 a 12 dígitos' : '4 a 30 letras o números';
     $('#lblObs').textContent = m === 'OTROS' ? 'Observaciones (describe el pago)' : 'Observaciones (opcional)';
     equivalente();
 }
@@ -210,7 +211,7 @@ function leerAbono() {
         if (!(tasa > 0)) return err('Escribe la tasa de cambio.', 'aTasa');
         p.tasa_cambio = tasa;
     }
-    if (m === 'PM') {
+    if (METODOS_BANCO.has(m)) {
         p.banco = $('#aBanco').value; p.referencia = val('aRef');
         if (!p.banco) return err('Selecciona el banco destino.', 'aBanco');
         if (!/^\d{4,12}$/.test(p.referencia)) return err('La referencia debe tener entre 4 y 12 dígitos.', 'aRef');
@@ -241,6 +242,7 @@ async function cobrar(e) {
 //--- Inicio ---//
 async function init() {
     if (window.Auth && !(await window.Auth.listo)) return;
+    $('#aBanco').append(...BANCOS.map(([v, nombre]) => el('option', { value: v, textContent: nombre })));
     let t;
     $('#fBuscar').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; pintarLista(); }, 200); });
     for (const b of $$('.filtro')) b.addEventListener('click', () => {
@@ -256,7 +258,7 @@ async function init() {
     $('#aMoneda').addEventListener('change', ajustarCampos);
     $('#aMonto').addEventListener('input', equivalente);
     $('#aTasa').addEventListener('input', equivalente);
-    $('#aRef').addEventListener('input', (e) => { if ($('#aMetodo').value === 'PM') e.target.value = e.target.value.replace(/\D/g, ''); });
+    $('#aRef').addEventListener('input', (e) => { if (METODOS_BANCO.has($('#aMetodo').value)) e.target.value = e.target.value.replace(/\D/g, ''); });
     $('#btnSaldo').addEventListener('click', () => { if (state.cuenta) { $('#aMonto').value = String(state.cuenta.saldo_usd); equivalente(); } });
     $('#formAbono').addEventListener('submit', cobrar);
     state.tasa = Number(localStorage.getItem('tasaFacturacion')) || 0;   // la misma que usa Nueva venta
