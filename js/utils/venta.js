@@ -47,8 +47,11 @@ export const SIN_REINTENTO = new Set(['enviado', 'sin_whatsapp', 'no_configurado
 export const BANCOS = [
     ['Banesco', 'Banesco', '0134'],
     ['Venezuela', 'Banco de Venezuela', '0102'],
+    ['Mercantil', 'Mercantil', '0105'],
     ['Provincial', 'Provincial', '0108'],
     ['Banplus', 'Banplus', '0174'],
+    ['Venezolano de Crédito', 'Venezolano de Crédito', '0104'],
+    ['Bancamiga', 'Bancamiga', '0172'],
 ];
 
 export const $ = (sel, raiz = document) => raiz.querySelector(sel);
