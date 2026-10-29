@@ -48,7 +48,7 @@ let seq = 0;
 
 //--- CÁLCULOS (funciones puras, sin DOM) ---//
 
-const nuevoIdFactura = () => `FAC-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 8)}`;
+const nuevoIdFactura = () => `NOT-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 8)}`;
 
 //--- 1. DATOS DEL CLIENTE ---//
 export const abrirCliente = () => {
