@@ -50,13 +50,13 @@ FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,64}$")
 
 ETIQUETAS = {
-    "ED": "Efectivo en dólares", "EBS": "Efectivo en bolívares", "PM": "Pago móvil",
+    "ED": "Efectivo en dólares", "EBS": "Efectivo en bolívares", "PM": "Pago móvil", "TB": "Transferencia bancaria",
     "PVD": "Punto de venta (débito)", "PVC": "Punto de venta (crédito)", "ZELLE": "Zelle",
     "BINANCE": "Binance (USDT)", "OTROS": "Otros", "MIXTO": "Pago combinado", "CREDITO": "Crédito (fiado)",
 }
 ORDEN_METODOS = list(ETIQUETAS)
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}    # se cobran en dólares; el resto en bolívares (OTROS trae su moneda)
-CON_REFERENCIA = {"PM", "ZELLE", "BINANCE"}  # se concilian contra el banco / la billetera
+CON_REFERENCIA = {"PM", "TB", "ZELLE", "BINANCE"}  # se concilian contra el banco / la billetera
 ENTRADAS = {"REGISTRO", "LLEGADA", "AJUSTE_ENTRADA", "DEVOLUCION_CLIENTE"}
 TIPOS_KARDEX = ENTRADAS | {"SALIDA_VENTA", "SALIDA_OTRO", "AJUSTE_SALIDA", "DEVOLUCION_PROVEEDOR"}
 

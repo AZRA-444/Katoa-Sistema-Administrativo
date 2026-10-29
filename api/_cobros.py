@@ -40,7 +40,8 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9\-]{8,64}$")
 REFERENCIA_RE = re.compile(r"^\d{4,12}$")
 REFERENCIA_DIGITAL_RE = re.compile(r"^[A-Z0-9]{4,30}$")
 
-METODOS_ABONO = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}
+METODOS_BANCO = {"PM", "TB"}   # pago móvil y transferencia: piden banco destino y referencia numérica
+METODOS_ABONO = {"PM", "TB", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}   # el resto se cobra en bolívares (OTROS trae su moneda)
 
 COLS = ("id,id_factura,cedula,nombre_cliente,telefono,vendedor,total_usd,abonado_usd,plazo_dias,"
@@ -240,7 +241,7 @@ def abonar(d, u):
         raise c.ErrorPeticion(400, "Indica la moneda del pago.")
     observaciones = _texto(d.get("observaciones"), "las observaciones", 500, obligatorio=False)
     banco = referencia = "N/A"
-    if metodo == "PM":
+    if metodo in METODOS_BANCO:
         banco = _texto(d.get("banco"), "el banco", 40)
         referencia = _texto(d.get("referencia"), "la referencia", 12)
         if not REFERENCIA_RE.match(referencia):

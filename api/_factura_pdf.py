@@ -45,6 +45,7 @@ GRIS = colors.HexColor("#5B6678")
 METODOS = {
     "MIXTO": "Pago combinado",
     "PM": "Pago móvil",
+    "TB": "Transferencia bancaria",
     "PVD": "Punto de venta (débito)",
     "PVC": "Punto de venta (crédito)",
     "CREDITO": "Crédito (fiado)",

@@ -48,7 +48,8 @@ TOLERANCIA = Decimal("0.02")  # diferencia admitida por redondeo JS vs Python
 BUCKET = "comprobantes"
 PREFIJO_JPEG = "data:image/jpeg;base64,"
 
-METODOS_MIXTO = {"PM", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}  # los que se pueden combinar
+METODOS_MIXTO = {"PM", "TB", "PVD", "PVC", "ED", "ZELLE", "BINANCE", "EBS", "OTROS"}  # los que se pueden combinar
+METODOS_BANCO = {"PM", "TB"}  # pago móvil y transferencia: piden banco destino y referencia numérica
 METODOS = METODOS_MIXTO | {"MIXTO", cred.METODO}  # MIXTO = pago combinado; CREDITO = fiado (se cobra después en Cobros)
 MAX_PAGOS = 8  # máximo de pagos dentro de un pago combinado
 METODOS_USD = {"ED", "ZELLE", "BINANCE"}  # se cobran en dólares con la tasa USDT
@@ -207,7 +208,7 @@ def _validar_mixto(p, t, tasa):
         observaciones = _texto(x.get("observaciones"), f"las observaciones del pago {i}", 500, obligatorio=False)
         banco = referencia = "N/A"
 
-        if metodo == "PM":
+        if metodo in METODOS_BANCO:
             banco = _texto(x.get("banco"), f"el banco del pago {i}", 40)
             referencia = _texto(x.get("referencia"), f"la referencia del pago {i}", 12)
             if not REFERENCIA_RE.match(referencia):
@@ -322,12 +323,12 @@ def validar(p):
             nota = f"Sin descuento USDT · Cobro ${a_pagar:.2f} a precio de lista"
         observaciones = f"{observaciones} | {nota}" if observaciones else nota
 
-    if metodo == "PM":
+    if metodo in METODOS_BANCO:
         banco = _texto(p.get("banco"), "el banco", 40)
         referencia = _texto(p.get("referencia"), "la referencia", 12)
         if not REFERENCIA_RE.match(referencia):
             _err("La referencia debe tener entre 4 y 12 dígitos.")
-        # Pago móvil: no se sube comprobante (si llegara en la petición, se ignora).
+        # Pago móvil / transferencia: no se sube comprobante (si llegara en la petición, se ignora).
     elif metodo in ("ZELLE", "BINANCE"):
         referencia = _texto(p.get("referencia"), "la referencia", 30).upper()
         if not REFERENCIA_DIGITAL_RE.match(referencia):
