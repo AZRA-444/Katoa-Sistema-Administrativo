@@ -38,7 +38,8 @@ const GRUPOS = [
 ];
 const MAX_NUM = 1_000_000;
 
-const state = { items: [], admin: false, kVar: null, cache: new Map(), alerta: '', seqLista: 0, seqK: 0 };
+const PAGINA = 200;  // filas por tanda; el servidor acepta hasta 1000
+const state = { items: [], hayMas: false, resumen: null, cargandoMas: false, admin: false, kVar: null, cache: new Map(), alerta: '', seqLista: 0, seqK: 0 };
 let uid = 0, avisoT;
 
 const nombreVar = (p) => [p.nombre, p.color, p.talla].filter(Boolean).join(' - ');
@@ -90,17 +91,55 @@ function nota(id, truncado, n) {
 //--- EXISTENCIAS ---//
 const filtrosActivos = () => !!($('#fBuscar').value.trim() || $('#fSeccion').value || state.alerta);
 
-async function cargarLista() {
+const paramsLista = () => ({ q: $('#fBuscar').value.trim(), seccion: $('#fSeccion').value, alerta: state.alerta });
+
+/** Primera página (o, con `mantener`, tantas filas como ya había: así un cambio de stock no te manda al inicio). */
+async function cargarLista({ mantener = false } = {}) {
     const n = ++state.seqLista;                  // si llega una respuesta más vieja que la última pedida, se descarta
+    const limite = mantener ? Math.min(Math.max(state.items.length, PAGINA), 1000) : PAGINA;
     cargando('#panExist', true);
     try {
-        const d = await consulta('lista', { q: $('#fBuscar').value.trim(), seccion: $('#fSeccion').value, alerta: state.alerta });
+        const [d, r] = await Promise.all([
+            consulta('lista', { ...paramsLista(), limite, offset: '0' }),
+            consulta('resumen', paramsLista()).catch(() => null),   // si el resumen falla, la lista igual se muestra
+        ]);
         if (n !== state.seqLista) return;
-        state.items = d.data; state.truncado = !!d.truncado;
+        state.items = d.data; state.hayMas = !!d.hay_mas; state.resumen = r?.data || null;
         for (const p of state.items) state.cache.set(etiqueta(p), p);
         pintarLista();
     } catch (e) { if (n === state.seqLista) aviso(e.message, true); }
     finally { if (n === state.seqLista) cargando('#panExist', false); }
+}
+
+/** Siguiente tanda: se añade al final sin repintar lo que ya está en pantalla. */
+async function cargarMas() {
+    if (state.cargandoMas || !state.hayMas) return;
+    const n = state.seqLista;                    // si cambian los filtros mientras tanto, la respuesta se descarta
+    state.cargandoMas = true; pintarPie();
+    try {
+        const d = await consulta('lista', { ...paramsLista(), limite: PAGINA, offset: String(state.items.length) });
+        if (n !== state.seqLista) return;
+        const vistos = new Set(state.items.map((p) => p.id));
+        const nuevos = d.data.filter((p) => !vistos.has(p.id));   // por si el inventario cambió entre páginas
+        state.items.push(...nuevos); state.hayMas = !!d.hay_mas;
+        for (const p of nuevos) state.cache.set(etiqueta(p), p);
+        $('#filasInv').append(...nuevos.map(filaProducto));
+    } catch (e) { if (n === state.seqLista) aviso(e.message, true); }
+    finally { state.cargandoMas = false; if (n === state.seqLista) { pintarPie(); revisarCentinela(); } }
+}
+
+// Carga automática al acercarse al final; el botón «Cargar más» queda como respaldo (teclado, lectores de pantalla).
+let observador;
+function iniciarScrollInfinito() {
+    const c = $('#centinelaInv');
+    if (!c || !('IntersectionObserver' in window)) return;
+    observador = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) cargarMas(); }, { rootMargin: '400px 0px' });
+    observador.observe(c);
+}
+/** Si tras añadir filas el centinela sigue a la vista (pantalla alta), el observador no vuelve a dispararse: se re-evalúa. */
+function revisarCentinela() {
+    if (!observador || !state.hayMas) return;
+    observador.unobserve($('#centinelaInv')); observador.observe($('#centinelaInv'));
 }
 
 function celda(etq, props, ...hijos) {
@@ -145,21 +184,35 @@ function filaProducto(p) {
     return tr;
 }
 
+function pintarPie() {
+    const total = state.resumen?.total;
+    const mostrados = state.items.length;
+    const hay = state.hayMas;
+    $('#pieInv').hidden = !mostrados;
+    $('#pieTxt').textContent = total != null ? `Mostrando ${mostrados} de ${total} productos` : `Mostrando ${mostrados} productos${hay ? ' (hay más)' : ''}`;
+    const b = $('#masInv');
+    b.hidden = !hay; b.disabled = state.cargandoMas;
+    b.textContent = state.cargandoMas ? 'Cargando…' : 'Cargar más';
+}
+
 function pintarLista() {
     const filas = state.items.map(filaProducto);
     $('#filasInv').replaceChildren(...filas);
-    $('#contInv').textContent = filas.length;
+    const r = state.resumen;
+    $('#contInv').textContent = r ? r.total : filas.length;
     const filtrado = filtrosActivos();
     $('#vacioInv').hidden = filas.length > 0;
     $('#vacioTxt').textContent = filtrado ? 'No hay productos con estos filtros. Prueba a quitar alguno.'
         : state.admin ? 'Aún no hay productos. Registra el primero con «Nuevo producto».' : 'Aún no hay productos registrados.';
-    nota('#notaInv', state.truncado, filas.length);
+    pintarPie();
 
-    const agotados = state.items.filter((p) => Number(p.cantidad) <= 0).length;
-    const bajos = state.items.filter((p) => Number(p.cantidad) > 0 && p.alerta === 'bajo').length;
-    const partes = [plural(agotados, 'agotado', 'agotados'), `${bajos} en stock bajo`];
-    if (state.admin && !state.truncado) partes.push(`Valor a costo: ${usd(round2(state.items.reduce((s, p) => s + Number(p.cantidad) * Number(p.precio_costo || 0), 0)))}`);
-    $('#resumenInv').textContent = filas.length ? partes.join(' · ') : '';
+    // Los totales vienen del servidor y cubren TODO el inventario filtrado, no solo lo cargado en pantalla.
+    if (r && filas.length) {
+        const partes = [plural(r.agotados, 'agotado', 'agotados'), `${r.bajos} en stock bajo`];
+        if (state.admin && r.valor_costo != null) partes.push(`Valor a costo: ${usd(round2(r.valor_costo))}`);
+        $('#resumenInv').textContent = partes.join(' · ');
+    } else $('#resumenInv').textContent = '';
+    revisarCentinela();
 }
 
 function fijarAlerta(v) {
@@ -561,7 +614,7 @@ async function enviarConAutorizacion(form, cuerpo) {
         });
         if (!d) return;                          // canceló la solicitud
         aviso(d.message || 'Listo.');
-        await Promise.all([cargarLista(), $('#panKardex').hidden ? null : cargarKardex()]);
+        await Promise.all([cargarLista({ mantener: true }), $('#panKardex').hidden ? null : cargarKardex()]);
     } catch (x) { aviso(x.message, true); }
 }
 
@@ -574,7 +627,7 @@ async function enviar(form, err, cuerpo) {
         const d = await api(API, typeof cuerpo === 'function' ? await cuerpo() : cuerpo);
         form.closest('dialog').close();
         aviso(d.message || 'Listo.');
-        await Promise.all([cargarLista(), $('#panKardex').hidden ? null : cargarKardex()]);
+        await Promise.all([cargarLista({ mantener: true }), $('#panKardex').hidden ? null : cargarKardex()]);
     } catch (x) { mostrarError(err, x.message); }
     finally { btn.disabled = false; btn.textContent = txt; }
 }
@@ -646,6 +699,8 @@ async function init() {
     $('#mSentido').addEventListener('change', previewMov);
     $('#formMov').addEventListener('submit', guardarMov);
 
+    $('#masInv').addEventListener('click', cargarMas);
+    iniciarScrollInfinito();
     await cargarLista();
 }
 
