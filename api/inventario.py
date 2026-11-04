@@ -33,7 +33,9 @@ import _comun as c  # noqa: E402
 
 MAX_BODY = 64 * 1024
 CLAVES_PRECIO = ("precio_detal", "precio_mayor", "cantidad_mayor", "precio_gran_mayor", "cantidad_gran_mayor")
-LIMITE_LISTA = 200
+PAGINA_LISTA = 200         # filas por página por defecto
+MAX_PAGINA_LISTA = 1000    # tope que el cliente puede pedir (p. ej. al recargar lo ya mostrado)
+MAX_OFFSET_LISTA = 200_000
 LIMITE_KARDEX = 300
 TIPOS = {"REGISTRO", "LLEGADA", "SALIDA_VENTA", "SALIDA_OTRO", "AJUSTE_ENTRADA",
          "AJUSTE_SALIDA", "DEVOLUCION_CLIENTE", "DEVOLUCION_PROVEEDOR"}
@@ -199,11 +201,11 @@ def _descripcion(p):
     return " - ".join(x for x in (p.get("nombre"), p.get("marca"), p.get("color"), p.get("talla")) if x)
 
 
-def _lista(qs, u):
+def _filtros_lista(qs):
+    """Filtros comunes de la lista y del resumen (búsqueda, sección y nivel de stock)."""
     q = re.sub(r"[^\w\s.\-]", "", (qs.get("q", [""])[0] or ""))[:60].strip()
-    cols = COLS_LISTA + (",precio_costo" if c.es_admin(u) else "")
     # activo=true: igual que _buscar; antes se listaban variantes inactivas y luego fallaban al darles entrada
-    params = [("select", cols), ("activo", "is.true"), ("order", "nombre.asc"), ("limit", str(LIMITE_LISTA + 1))]
+    params = [("activo", "is.true")]
     if qs.get("seccion") and qs["seccion"][0]:
         params.append(("seccion_id", f"eq.{_entero(qs['seccion'][0], 'la sección', 1, 32000)}"))
     alerta = qs.get("alerta", [""])[0]
@@ -216,7 +218,53 @@ def _lista(qs, u):
             params.append(("codigo_barras", f"eq.{q}"))
         else:
             params.append(("or", f"(nombre.ilike.*{q}*,marca.ilike.*{q}*,color.ilike.*{q}*,talla.ilike.*{q}*)"))
-    return _leer("inv_catalogo", params)
+    return params
+
+
+def _lista(qs, u):
+    """Una página de la lista. Se piden limite+1 filas para saber si hay más sin hacer un count aparte."""
+    limite = _entero(qs.get("limite", [""])[0] or PAGINA_LISTA, "el límite", 1, MAX_PAGINA_LISTA)
+    desde = _entero(qs.get("offset", [""])[0] or 0, "el desplazamiento", 0, MAX_OFFSET_LISTA)
+    cols = COLS_LISTA + (",precio_costo" if c.es_admin(u) else "")
+    # «id» desempata: sin él, dos productos con el mismo nombre podían repetirse o saltarse entre páginas.
+    params = [("select", cols), ("order", "nombre.asc,id.asc"),
+              ("limit", str(limite + 1)), ("offset", str(desde))] + _filtros_lista(qs)
+    filas = _leer("inv_catalogo", params)
+    return {"filas": filas[:limite], "hay_mas": len(filas) > limite}
+
+
+def _contar(params):
+    """Cuenta filas con los filtros dados (Prefer: count=exact, sin traer filas)."""
+    r = c._http.get(f"{c.SUPABASE_URL}/rest/v1/inv_catalogo", params=[("select", "id"), ("limit", "1")] + params,
+                    headers={**c._hdr_servicio(), "Prefer": "count=exact"}, timeout=c.TIMEOUT)
+    if r.status_code not in (200, 206):
+        print(f"[inventario] conteo {r.status_code}: {r.text[:400]}", file=sys.stderr)
+        raise c.ErrorPeticion(502, "No se pudo completar la operación.")
+    try:
+        return int(r.headers.get("Content-Range", "").split("/")[-1])
+    except ValueError:
+        return 0
+
+
+def _resumen(qs, u):
+    """Totales de TODO lo que cumple los filtros (no solo de la página cargada)."""
+    base = _filtros_lista(qs)
+    out = {
+        "total": _contar(base),
+        "agotados": _contar(base + [("cantidad", "lte.0")]),
+        "bajos": _contar(base + [("cantidad", "gt.0"), ("alerta", "eq.bajo")]),
+    }
+    if c.es_admin(u):   # valor a costo: suma en bloques livianos (solo cantidad y costo)
+        total, desde = 0.0, 0
+        for _ in range(100):
+            bloque = _leer("inv_catalogo", [("select", "cantidad,precio_costo"), ("order", "id.asc"),
+                                            ("limit", "1000"), ("offset", str(desde))] + base)
+            total += sum(float(f.get("cantidad") or 0) * float(f.get("precio_costo") or 0) for f in bloque)
+            if len(bloque) < 1000:
+                break
+            desde += 1000
+        out["valor_costo"] = round(total, 2)
+    return out
 
 
 def _kardex(qs, u):
@@ -446,7 +494,10 @@ class handler(BaseHTTPRequestHandler):
                 return self._ok(data=_buscar(qs, _entrada(self, "personal")))
             u = _entrada(self, "encargado")
             if modo == "lista":
-                return self._recortado(_lista(qs, u), LIMITE_LISTA)
+                pag = _lista(qs, u)
+                return self._ok(data=pag["filas"], hay_mas=pag["hay_mas"])
+            if modo == "resumen":
+                return self._ok(data=_resumen(qs, u))
             if modo == "kardex":
                 return self._recortado(_kardex(qs, u), LIMITE_KARDEX)
             if modo == "codigo":
