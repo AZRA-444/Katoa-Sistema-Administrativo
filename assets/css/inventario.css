@@ -194,3 +194,6 @@ body:has(dialog[open]) { overflow: hidden; }
   .filtros { width: 100%; }
   .filtro { flex: 1 1 auto; }
 }
+
+.pie-lista { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin: 14px 0 4px; font-size: .9rem; color: #5b5b5b; }
+#centinelaInv { height: 1px; }
