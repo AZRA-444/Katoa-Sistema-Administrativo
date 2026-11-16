@@ -10,7 +10,7 @@
  * ========================================================================== */
 import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164 } from './utils/format.js';
 import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura } from './utils/api.js';
-import { METODOS_COMPROBANTE, METODOS_USD, BANCOS, $, calcularTotales, el, esc, fechaLimiteCredito, montoEnDolares, precioUnitario, pulso, totalLinea, validarCliente, mostrarEstado, mostrarPagoError, crearPagoMixto } from './utils/venta.js';
+import { METODOS_USD, BANCOS, $, calcularTotales, el, esc, fechaLimiteCredito, montoEnDolares, precioUnitario, pulso, totalLinea, validarCliente, mostrarEstado, mostrarPagoError, crearPagoMixto } from './utils/venta.js';
 
 //--- CONSTANTES ---//
 // Las tasas y el vendedor comparten clave con facturación: lo que se escribe en un módulo aparece en el otro.
@@ -33,7 +33,6 @@ const state = {
     tasaUsdtManual: false,
     descuentoUsd: true,   // interruptor: aplicar la conversión USDT en pagos en dólares
     rellenoAuto: false,   // true si nombre/apellido/teléfono los llenó el autorrelleno (se pueden volver a pisar)
-    comprobante: null,    // foto del pago Zelle/Binance (data URL JPEG comprimido)
     pagosMixtos: [],      // líneas del pago combinado
     mixtoSeq: 0,          // contador de ids de esas líneas
     nuevoId: null,        // fila recién agregada (para resaltarla una vez)
@@ -670,7 +669,6 @@ async function finalizarCompra() {
         subtotal_usd: t.total, total_usd: t.total, // precio de lista (BCV); el cobro en dólares viaja en monto_usd
         subtotal_bs: t.totalBs, total_bs: t.totalBs,
         ...lectura.pago,
-        comprobante: METODOS_COMPROBANTE.has(lectura.pago.metodo_pago) ? state.comprobante : null,
         productos: p.items.map((i) => ({
             nombre: i.nombre, cantidad: i.cantidad, precioUnitario: i.precioUnitario,
             precioTotal: totalLinea(i), idInventario: i.idInventario,

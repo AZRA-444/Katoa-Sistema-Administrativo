@@ -5,7 +5,7 @@
  * ========================================================================== */
 import { FORMATTERS, usd, bs, round2, soloDigitos, telefonoE164 } from './utils/format.js';
 import { buscarProductos, buscarCliente, guardarCliente, obtenerTasa, obtenerTasaUsdt, enviarFactura } from './utils/api.js';
-import { METODOS_COMPROBANTE, METODOS_USD, $, calcularTotales, el, fechaLimiteCredito, precioUnitario, pulso, totalLinea, validarCliente, mostrarEstado, mostrarPagoError, crearPagoMixto } from './utils/venta.js';
+import { METODOS_USD, $, calcularTotales, el, fechaLimiteCredito, precioUnitario, pulso, totalLinea, validarCliente, mostrarEstado, mostrarPagoError, crearPagoMixto } from './utils/venta.js';
 
 //--- CONSTANTES ---//
 const STORAGE = { vendedor: 'vendedorActual', tasa: 'tasaFacturacion', tasaUsdt: 'tasaUsdtFacturacion' };
@@ -19,7 +19,6 @@ const state = {
     tasaUsdtManual: false,
     descuentoUsd: true,   // interruptor: aplicar la conversión USDT en pagos en dólares
     cliente: null,        // datos ya validados del cliente
-    comprobante: null,    // foto del pago Zelle/Binance (data URL JPEG comprimido)
     pagosMixtos: [],      // líneas del pago combinado
     mixtoSeq: 0,          // contador de ids de esas líneas
     idFactura: null,      // se conserva entre reintentos para no duplicar la factura
@@ -448,7 +447,6 @@ async function finalizarCompra() {
         subtotal_usd: t.total, total_usd: t.total, // precio de lista (BCV); el cobro en dólares viaja en monto_usd
         subtotal_bs: t.totalBs, total_bs: t.totalBs,
         ...lectura.pago,
-        comprobante: METODOS_COMPROBANTE.has(lectura.pago.metodo_pago) ? state.comprobante : null,
         productos: state.items.map((p) => ({
             nombre: p.nombre, cantidad: p.cantidad, precioUnitario: p.precioUnitario,
             precioTotal: totalLinea(p), idInventario: p.idInventario,
