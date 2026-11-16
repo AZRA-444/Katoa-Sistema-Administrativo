@@ -582,5 +582,5 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
         if (state.factura?.pdf) window.open(urlPdfFactura(state.factura.id), '_blank', 'noopener');
     }
 
-    return { factorUsd, abonoLinea, restanteMixto, nuevaLineaMixto, completarLineaMixto, aPagarUsd, htmlMontoDolares, htmlLineaMixto, leerMixto, activarComprobante, selectMetodoPago, leerPago, iniciarMixto, actualizarMixto, alternarDescuento, pintarLineasMixto, filaProducto, pintarExito, reintentarWhatsapp, imprimirFactura };
+    return { factorUsd, abonoLinea, restanteMixto, nuevaLineaMixto, completarLineaMixto, aPagarUsd, htmlMontoDolares, htmlLineaMixto, leerMixto, selectMetodoPago, leerPago, iniciarMixto, actualizarMixto, alternarDescuento, pintarLineasMixto, filaProducto, pintarExito, reintentarWhatsapp, imprimirFactura };
 }
