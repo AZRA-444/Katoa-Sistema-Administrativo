@@ -24,8 +24,6 @@ export const AVISOS_WA = {
 // queda en el módulo Cobros. Reglas (plazo máximo, quién puede usarlo): las manda /api/sesion y las exige el servidor.
 export const CREDITO = 'CREDITO';
 
-export const METODOS_COMPROBANTE = new Set(['ZELLE', 'BINANCE']); // el pago móvil NO sube comprobante
-
 export const METODOS_MIXTO = [
     ['PM', 'Pago móvil'], ['TB', 'Transferencia bancaria'], ['PVD', 'Punto de venta (débito)'], ['PVC', 'Punto de venta (crédito)'],
     ['ED', 'Efectivo en divisas ($)'], ['ZELLE', 'Zelle'], ['BINANCE', 'Binance (USDT)'],
@@ -65,27 +63,6 @@ export function calcularTotales(items, tasa) {
 }
 
 export const calcularVuelto = (recibido, total) => (recibido >= total ? round2(recibido - total) : 0);
-
-/** Reduce la foto a JPEG de máx. 1280 px (~150 KB) antes de enviarla. */
-export function comprimirImagen(archivo, maxLado = 1280, calidad = 0.72) {
-    return new Promise((resolve, reject) => {
-        if (!archivo.type.startsWith('image/')) return reject(new Error('El comprobante debe ser una imagen.'));
-        const lector = new FileReader();
-        lector.onerror = () => reject(new Error('No se pudo leer la imagen.'));
-        lector.onload = () => {
-            const img = new Image();
-            img.onerror = () => reject(new Error('No se pudo abrir la imagen. Prueba con otra foto.'));
-            img.onload = () => {
-                const k = Math.min(1, maxLado / Math.max(img.width, img.height));
-                const canvas = el('canvas', { width: Math.round(img.width * k), height: Math.round(img.height * k) });
-                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL('image/jpeg', calidad));
-            };
-            img.src = lector.result;
-        };
-        lector.readAsDataURL(archivo);
-    });
-}
 
 export function el(tag, props = {}, ...hijos) {
     const n = document.createElement(tag);
@@ -175,7 +152,7 @@ export const mostrarPagoError = (msg, campoId) => {
 
 /**
  * Funciones del cobro (pago en dólares, pago combinado, pantalla de éxito) que leen el estado del módulo que las usa.
- *   state          { tasa, tasaUsdt, descuentoUsd, pagosMixtos, mixtoSeq, comprobante, factura, … } de ese módulo
+ *   state          { tasa, tasaUsdt, descuentoUsd, pagosMixtos, mixtoSeq, factura, … } de ese módulo
  *   ganchos:
  *     obtenerItems  () => productos de la venta actual (en pedidos cambia con el pedido seleccionado)
  *     invalidarId   () => el cobro cambió: el próximo envío debe usar un id de factura nuevo
@@ -314,13 +291,9 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
         return { pago };
     }
 
-    }
-
-
     function selectMetodoPago(valor) {
         const cont = $('#paymentDetails');
         const t = calcularTotales(obtenerItems(), state.tasa);
-        state.comprobante = null;
         $('#filaDescuento').hidden = !(METODOS_USD.has(valor) || valor === 'MIXTO');
         $('#descUsdt').checked = state.descuentoUsd;
         $('#pagoError').hidden = true;
@@ -358,7 +331,6 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
                 campo('refDigital', valor === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia',
                     `<input id="refDigital" autocomplete="off" autocapitalize="characters" maxlength="30" placeholder="4 a 30 letras o números">`) +
                 observaciones('observacionesDIG');
-            activarComprobante();
         } else if (valor === 'EBS') {
             cont.innerHTML =
                 monto('Monto a pagar', bs(t.totalBs)) +
