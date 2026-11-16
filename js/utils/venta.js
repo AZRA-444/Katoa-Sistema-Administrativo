@@ -314,25 +314,6 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
         return { pago };
     }
 
-    function activarComprobante() {
-        const input = $('#receiptCapture'), preview = $('#receiptPreview');
-        $('#btnCapture').addEventListener('click', () => input.click());
-        input.addEventListener('change', async () => {
-            state.comprobante = null;
-            preview.hidden = true;
-            preview.style.backgroundImage = '';
-            const archivo = input.files?.[0];
-            if (!archivo) return;
-            try {
-                state.comprobante = await comprimirImagen(archivo);
-                preview.style.backgroundImage = `url("${state.comprobante}")`;
-                preview.hidden = false;
-                $('#pagoError').hidden = true;
-            } catch (e) {
-                input.value = '';
-                mostrarPagoError(e.message);
-            }
-        });
     }
 
 
@@ -353,11 +334,6 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
             campo(id, obligatoria ? 'Observaciones' : 'Observaciones (opcional)',
                 `<textarea id="${id}" rows="3" maxlength="500" ${obligatoria ? 'required' : ''} placeholder="${obligatoria ? 'Describe el método de pago…' : 'Detalla alguna novedad…'}"></textarea>`, 'span');
         const mixto = `${usd(t.total)} / ${bs(t.totalBs)}`;
-
-        const comprobante = `<div class="field span"><span class="lbl">Comprobante de pago (opcional)</span>
-             <input id="receiptCapture" type="file" accept="image/*" capture="environment" hidden>
-             <button id="btnCapture" class="btn btn-ghost" type="button"><i class="fas fa-camera"></i> Adjuntar o tomar foto</button>
-             <div id="receiptPreview" class="receipt-preview" hidden></div></div>`;
 
         if (METODOS_BANCO.has(valor)) {
             cont.innerHTML =
@@ -381,7 +357,6 @@ export function crearPagoMixto(state, { obtenerItems, invalidarId, renderResumen
                 htmlMontoDolares(t) +
                 campo('refDigital', valor === 'ZELLE' ? 'Número de confirmación' : 'ID de orden o referencia',
                     `<input id="refDigital" autocomplete="off" autocapitalize="characters" maxlength="30" placeholder="4 a 30 letras o números">`) +
-                comprobante +
                 observaciones('observacionesDIG');
             activarComprobante();
         } else if (valor === 'EBS') {
